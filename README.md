@@ -197,6 +197,8 @@ Giao diện Neumorphism, hỗ trợ Light / Dark mode với hiệu ứng chuyể
 
 ## 🚀 Triển Khai Production (Raspberry Pi)
 
+Với Oracle Cloud VPS, xem [hướng dẫn cài đặt bản fork trên OCI](docs/oracle-vps.md).
+
 Ứng dụng chạy từ image CI build và publish lên **GitHub Container Registry (GHCR)** mỗi bản phát hành (tag `vX.Y.Z`). Container **`family-organizer-updater`** đi kèm lo việc cập nhật khi bấm nút trong app — không cần terminal sau lần cài đầu.
 
 ### Yêu cầu hệ thống

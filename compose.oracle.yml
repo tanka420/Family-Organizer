@@ -1,0 +1,32 @@
+name: family-organizer-oci
+
+services:
+  family-organizer:
+    image: ${FAMILY_ORGANIZER_IMAGE:-family-organizer-oci-family-organizer:latest}
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-}
+    user: "${FAMILY_UID:?Set FAMILY_UID to the Linux family user ID}:${FAMILY_GID:?Set FAMILY_GID to the Linux family group ID}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FAMILY_HTTP_PORT:-3001}:3000"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
+    environment:
+      HOME: /tmp
+      TZ: Asia/Ho_Chi_Minh
+      GITHUB_REPO: tanka420/Family-Organizer
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

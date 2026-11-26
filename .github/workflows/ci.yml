@@ -26,4 +26,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Kiểm tra cú pháp shell
-        run: sh -n deploy/updater.sh && bash -n scripts/release.sh
+        run: |
+          sh -n deploy/updater.sh
+          bash -n scripts/release.sh
+          bash -n deploy/install-oci-updater.sh
+          bash -n deploy/oci-updater.sh

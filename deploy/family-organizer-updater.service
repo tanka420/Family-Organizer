@@ -1,0 +1,17 @@
+[Unit]
+Description=Family Organizer updates from GitHub Releases
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/local/libexec/family-organizer-updater.sh
+Restart=on-failure
+RestartSec=10s
+StateDirectory=family-organizer-updater
+StateDirectoryMode=0700
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

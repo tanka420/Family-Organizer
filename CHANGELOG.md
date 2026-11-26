@@ -3,6 +3,10 @@
 Ghi theo phiên bản, mới nhất ở trên. Nội dung mục của từng phiên bản được dùng làm ghi chú
 hiển thị trong **Thiết lập → Hệ thống & Sao lưu → Phiên bản & Cập nhật**.
 
+## [1.1.1] - 2026-11-26
+
+- Bản phát hành riêng của `tanka420/Family-Organizer` cho Oracle VPS. Dịch vụ cập nhật build từ tag của fork, dùng bản sao lưu SQLite và kiểm tra phiên bản sau khi khởi động.
+
 ## [1.1.0] - 2026-10-09
 
 ### Mới
