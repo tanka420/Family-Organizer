@@ -31,4 +31,5 @@ install -m 0600 "$source_dir/compose.oracle.yml" "$config/compose.oracle.yml"
 install -m 0755 "$source_dir/deploy/oci-updater.sh" /usr/local/libexec/family-organizer-updater.sh
 install -m 0644 "$source_dir/deploy/family-organizer-updater.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now family-organizer-updater.service
+systemctl enable family-organizer-updater.service
+systemctl restart family-organizer-updater.service

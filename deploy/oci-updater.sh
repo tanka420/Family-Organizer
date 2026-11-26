@@ -15,7 +15,7 @@ github_repo=tanka420/Family-Organizer
 service=family-organizer
 version_pattern='[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?'
 
-as_family() { runuser -u family -- "$@"; }
+as_family() { setpriv --reuid=family --regid=family --clear-groups -- "$@"; }
 compose() {
   docker compose --project-directory "$stack" --env-file "$config/app.env" \
     --env-file "$release_env" -f "$config/compose.oracle.yml" "$@"
@@ -42,7 +42,7 @@ write_state() {
 report() {
   write_state "$queue" "phase=$phase" "request_id=$request_id" "action=$action" \
     "result=$result" "message=$message" "current=$current" "previous=$previous" \
-    "finished_at=$finished_at" 'script_version=oci-1'
+    "finished_at=$finished_at" 'script_version=oci-2'
 }
 
 from_request() { sed -n "s/^$1=//p" <<< "$request" | head -n 1; }
@@ -104,8 +104,9 @@ build_release() (
   trap 'rm -rf -- "$work"' EXIT
   curl -fsS --max-time 20 "https://api.github.com/repos/$github_repo/releases/tags/v$version" |
     python3 -c 'import json,sys; release=json.load(sys.stdin); assert not release["draft"] and release["tag_name"] == sys.argv[1]' "v$version" || exit 1
-  git -c advice.detachedHead=false clone --quiet --depth 1 --branch "v$version" \
-    "https://github.com/$github_repo.git" "$work" || exit 1
+  # Docker COPY giữ quyền từ checkout. Các tệp nguồn phải đọc được bởi UID trong container.
+  (umask 022; git -c advice.detachedHead=false clone --quiet --depth 1 --branch "v$version" \
+    "https://github.com/$github_repo.git" "$work") || exit 1
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["version"] == sys.argv[2]' "$work/package.json" "$version" || exit 1
   revision=$(git -C "$work" rev-parse HEAD) || exit 1
   docker build --tag "$image_repo:$version" --build-arg "GIT_SHA=$revision" "$work"
@@ -180,6 +181,7 @@ apply_update() {
     return 0
   fi
   phase=rolling_back
+  compose logs --tail 25 "$service" || true
   if recover_version "$previous" "$rollback_snapshot"; then
     result=rolled_back
     message="Bản v$target bị lỗi. Đã khôi phục v$previous và bản sao lưu SQLite."
