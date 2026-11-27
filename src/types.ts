@@ -232,6 +232,13 @@ export interface FinancialTransaction {
   createdAt: string;
 }
 
+export const BANK_IMPORT_LABELS = { bidv: "BIDV", myvib: "MyVIB" } as const;
+export type BankImportSource = keyof typeof BANK_IMPORT_LABELS;
+
+export function bankImportSource(id: string): BankImportSource {
+  return id.startsWith("myvib:") ? "myvib" : "bidv";
+}
+
 type BidvReviewFields = Pick<FinancialTransaction, "type" | "amount" | "description" | "date">;
 
 export type BidvImportEvent = {
@@ -639,6 +646,7 @@ export interface FamilyOrganizerDB {
   notes: Note[];
   transactions: FinancialTransaction[];
   bidvImports: BidvImportEvent[];
+  myvibImports: BidvImportEvent[];
   bidvCategoryRules: BidvCategoryRule[];
   bidvAutoApprovalRules: (BidvAutoApprovalRule & { approvedBy: string })[];
   rewardLedger: RewardPointEntry[];

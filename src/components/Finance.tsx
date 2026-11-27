@@ -51,7 +51,7 @@ import { DebtTracker } from "./DebtTracker.js";
 import { ShimmerLine, Reveal } from "./Lively.js";
 import { FancySelect } from "./FancySelect.js";
 import { INCOME_CATEGORIES, INCOME_CUSTOM, isPresetIncome } from "../utils/incomeCategories.js";
-import { BidvImportInbox } from "./BidvImportInbox.js";
+import { BankImportInbox } from "./BidvImportInbox.js";
 import { optimizeAndUpload } from "../utils/uploadImage.js";
 import { useModalA11y } from "../hooks/useModalA11y.js";
 import {
@@ -1576,11 +1576,11 @@ export function Finance({
         </div>
       )}
 
-      {currentUser.role === UserRole.ADMIN && authToken && (
-        <BidvImportInbox authToken={authToken} expenseCategories={expenseCategoryOptions}
+      {currentUser.role === UserRole.ADMIN && authToken && (["bidv", "myvib"] as const).map(source => (
+        <BankImportInbox key={source} source={source} authToken={authToken} expenseCategories={expenseCategoryOptions}
           onApproved={onRefreshTransactions} revision={bidvRevision}
           reviewRequest={bidvReviewRequest} onReviewOpened={onBidvReviewOpened} />
-      )}
+      ))}
 
       {/* Query Filters blocks and create triggers row */}
       <div className="relative overflow-hidden bg-slate-900 neu-raised p-4.5 rounded-2xl shadow-xl space-y-3" id="finance-filters">

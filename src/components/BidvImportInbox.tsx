@@ -6,12 +6,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Inbox, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { TransactionType, type PendingBidvImport, type BidvImportReview, type BidvAutoApprovalRule } from "../types.js";
+import { BANK_IMPORT_LABELS, bankImportSource, TransactionType, type BankImportSource, type PendingBidvImport, type BidvImportReview, type BidvAutoApprovalRule } from "../types.js";
 import { INCOME_CATEGORIES, INCOME_CUSTOM, isPresetIncome } from "../utils/incomeCategories.js";
 import { useConfirm } from "./ConfirmDialog.js";
 import { FancySelect, type SelectOption } from "./FancySelect.js";
 
-const API = "/api/finance/imports/bidv";
 const INPUT_CLASS = "w-full min-w-0 bg-slate-950 neu-pressed-sm rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500";
 const BUTTON_CLASS = "min-h-10 rounded-xl px-3 py-2 font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60";
 
@@ -30,6 +29,7 @@ interface ReviewDraft {
 }
 
 interface InboxProps {
+  source: BankImportSource;
   authToken: string;
   expenseCategories: SelectOption[];
   onApproved: () => Promise<void>;
@@ -38,8 +38,12 @@ interface InboxProps {
   onReviewOpened: (seq: number) => void;
 }
 
-export function BidvImportInbox({ authToken, expenseCategories, onApproved, revision, reviewRequest, onReviewOpened }: InboxProps) {
+export function BankImportInbox({ source, authToken, expenseCategories, onApproved, revision, reviewRequest, onReviewOpened }: InboxProps) {
   const { t, i18n } = useTranslation();
+  const api = `/api/finance/imports/${source}`;
+  const bank = BANK_IMPORT_LABELS[source];
+  const label = source === "bidv" ? t("finance.bidvInbox.title") : bank;
+  const inboxText = (key: string) => t("finance.bidvInbox." + key, { bank });
   const [items, setItems] = useState<PendingBidvImport[]>([]);
   const [receivingEnabled, setReceivingEnabled] = useState<boolean | null>(null);
   const [rules, setRules] = useState<BidvAutoApprovalRule[]>([]);
@@ -59,7 +63,7 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
     setLoading(true);
     async function loadPending() {
       try {
-        const response = await fetch(API + "/pending", {
+        const response = await fetch(api + "/pending", {
           headers: { Authorization: "Bearer " + authToken },
           cache: "no-store",
           signal: controller.signal,
@@ -86,7 +90,7 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
     }
     void loadPending();
     return () => controller.abort();
-  }, [authToken, refresh, revision]);
+  }, [api, authToken, refresh, revision]);
 
   const incomeOptions = [
     ...INCOME_CATEGORIES.map(category => ({ value: category, label: category })),
@@ -94,9 +98,9 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
   ];
 
   function fallbackDescription(type: ReviewDraft["type"]) {
-    if (type === TransactionType.INCOME) return t("finance.bidvInbox.incomingDescription");
-    if (type === TransactionType.EXPENSE) return t("finance.bidvInbox.outgoingDescription");
-    return t("finance.bidvInbox.defaultDescription");
+    if (type === TransactionType.INCOME) return inboxText("incomingDescription");
+    if (type === TransactionType.EXPENSE) return inboxText("outgoingDescription");
+    return inboxText("defaultDescription");
   }
 
   function openReview(item: PendingBidvImport) {
@@ -129,7 +133,7 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
     setError("");
     setNotice("");
     try {
-      const response = await fetch(API + "/" + encodeURIComponent(id) + "/review", {
+      const response = await fetch(api + "/" + encodeURIComponent(id) + "/review", {
         method: "POST",
         headers: { Authorization: "Bearer " + authToken, "Content-Type": "application/json" },
         body: JSON.stringify(review),
@@ -192,7 +196,7 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
     setError("");
     setNotice("");
     try {
-      const response = await fetch(API + "/rules/" + encodeURIComponent(rule.id), {
+      const response = await fetch(api + "/rules/" + encodeURIComponent(rule.id), {
         method: "PATCH",
         headers: { Authorization: "Bearer " + authToken, "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: !rule.enabled }),
@@ -209,36 +213,36 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
   }
 
   useEffect(() => {
-    if (!reviewRequest || loading || handledReview.current === reviewRequest.seq) return;
+    if (!reviewRequest || bankImportSource(reviewRequest.id) !== source || loading || handledReview.current === reviewRequest.seq) return;
     handledReview.current = reviewRequest.seq;
     setTab("pending");
     const item = items.find(item => item.id === reviewRequest.id);
     if (item) openReview(item);
     onReviewOpened(reviewRequest.seq);
     requestAnimationFrame(() => {
-      const target = document.getElementById("bidv-item-" + reviewRequest.id) ?? document.getElementById("bidv-inbox");
+      const target = document.getElementById(source + "-item-" + reviewRequest.id) ?? document.getElementById(source + "-inbox");
       target?.scrollIntoView({ block: "start" });
     });
-  }, [reviewRequest, loading, items, onReviewOpened]);
+  }, [reviewRequest, loading, items, onReviewOpened, source]);
 
   if (!receivingEnabled && items.length === 0 && rules.length === 0 && !error && !notice) return null;
 
   return (
-    <section id="bidv-inbox" aria-labelledby="bidv-inbox-title" className="bg-slate-900 neu-raised rounded-2xl p-4 sm:p-5 space-y-3">
+    <section id={source + "-inbox"} aria-labelledby={source + "-inbox-title"} className="bg-slate-900 neu-raised rounded-2xl p-4 sm:p-5 space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 id="bidv-inbox-title" className="flex items-center gap-2 text-sm font-bold text-slate-200">
+        <h3 id={source + "-inbox-title"} className="flex items-center gap-2 text-sm font-bold text-slate-200">
           <Inbox aria-hidden="true" className="w-4 h-4 text-sky-400" />
-          {t("finance.bidvInbox.title")}
+          {label}
         </h3>
         <button type="button" disabled={loading || saving}
-          aria-label={t("finance.bidvInbox.refresh")} title={t("finance.bidvInbox.refresh")}
+          aria-label={inboxText("refresh")} title={inboxText("refresh")}
           className="p-2 rounded-lg bg-slate-950 neu-btn text-slate-400 hover:text-sky-400 cursor-pointer disabled:opacity-60"
           onClick={() => { setError(""); setNotice(""); setRefresh(value => value + 1); }}>
           <RefreshCw aria-hidden="true" className="w-4 h-4" />
         </button>
       </div>
 
-      <div role="group" aria-label={t("finance.bidvInbox.title")} className="flex gap-1 rounded-xl bg-slate-950/40 neu-pressed-sm p-1 text-xs">
+      {source === "bidv" && <div role="group" aria-label={label} className="flex gap-1 rounded-xl bg-slate-950/40 neu-pressed-sm p-1 text-xs">
         <button type="button" aria-pressed={tab === "pending"}
           className={BUTTON_CLASS + " flex-1 " + (tab === "pending" ? "bg-slate-900 neu-raised-sm text-sky-400" : "text-slate-400")}
           onClick={() => { setTab("pending"); setError(""); setNotice(""); }}>
@@ -249,11 +253,11 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
           onClick={() => { setTab("rules"); setDraft(null); setError(""); setNotice(""); }}>
           {t("finance.bidvInbox.rulesTab")}
         </button>
-      </div>
+      </div>}
 
-      {error && !draft && <p role="alert" className="text-xs text-rose-400">{t("finance.bidvInbox." + error)}</p>}
-      {notice && <p role="status" className="text-xs text-emerald-400">{t("finance.bidvInbox." + notice)}</p>}
-      {loading && <p role="status" className="text-xs text-slate-400">{t("finance.bidvInbox.loading")}</p>}
+      {error && !draft && <p role="alert" className="text-xs text-rose-400">{inboxText(error)}</p>}
+      {notice && <p role="status" className="text-xs text-emerald-400">{inboxText(notice)}</p>}
+      {loading && <p role="status" className="text-xs text-slate-400">{inboxText("loading")}</p>}
 
       <div className="max-h-[60dvh] overflow-y-auto overscroll-contain scrollbar-thin space-y-3 p-1">
         {tab === "rules" ? (
@@ -284,7 +288,7 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
           <>
             {!loading && !error && items.length === 0 && <p className="text-xs text-slate-400">{t("finance.bidvInbox.empty")}</p>}
             {items.map(item => (
-              <div key={item.id} id={"bidv-item-" + item.id} className="bg-slate-950/40 neu-pressed-sm rounded-xl p-3 space-y-3">
+              <div key={item.id} id={source + "-item-" + item.id} className="bg-slate-950/40 neu-pressed-sm rounded-xl p-3 space-y-3">
                 <div className="space-y-1">
                   <time dateTime={item.receivedAt} className="block text-xs text-slate-450 font-mono">
                     {new Date(item.receivedAt).toLocaleString(i18n.language, {
@@ -305,11 +309,11 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
 
                 {draft?.id === item.id ? (
                   <form onSubmit={approve} className="space-y-3 text-xs" aria-label={t("finance.bidvInbox.review")}>
-                    {error && <p role="alert" className="text-xs text-rose-400">{t("finance.bidvInbox." + error)}</p>}
+                    {error && <p role="alert" className="text-xs text-rose-400">{inboxText(error)}</p>}
                     <fieldset disabled={saving || loading} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="min-w-0 space-y-1">
-                        <label htmlFor="bidv-review-type" className="block text-slate-400 font-semibold">{t("finance.bidvInbox.direction")}</label>
-                        <FancySelect id="bidv-review-type" value={draft.type} ariaLabel={t("finance.bidvInbox.direction")}
+                        <label htmlFor={source + "-review-type"} className="block text-slate-400 font-semibold">{t("finance.bidvInbox.direction")}</label>
+                        <FancySelect id={source + "-review-type"} value={draft.type} ariaLabel={t("finance.bidvInbox.direction")}
                           options={[
                             { value: TransactionType.INCOME, label: t("finance.formIncomeBtn") },
                             { value: TransactionType.EXPENSE, label: t("finance.formExpenseBtn") },
@@ -329,16 +333,16 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
                       </label>
                       {!draft.internalTransfer && draft.type === TransactionType.EXPENSE && (
                         <div className="min-w-0 space-y-1">
-                          <label htmlFor="bidv-review-category" className="block text-slate-400 font-semibold">{t("finance.formCatExpenseLabel")}</label>
-                          <FancySelect id="bidv-review-category" value={draft.category} options={expenseCategories}
+                          <label htmlFor={source + "-review-category"} className="block text-slate-400 font-semibold">{t("finance.formCatExpenseLabel")}</label>
+                          <FancySelect id={source + "-review-category"} value={draft.category} options={expenseCategories}
                             placeholder={t("finance.bidvInbox.chooseCategory")}
                             ariaLabel={t("finance.formCatExpenseLabel")} onChange={category => setDraft({ ...draft, category })} />
                         </div>
                       )}
                       {!draft.internalTransfer && draft.type === TransactionType.INCOME && (
                         <div className="min-w-0 space-y-1">
-                          <label htmlFor="bidv-review-income" className="block text-slate-400 font-semibold">{t("finance.formCatIncomeLabel")}</label>
-                          <FancySelect id="bidv-review-income"
+                          <label htmlFor={source + "-review-income"} className="block text-slate-400 font-semibold">{t("finance.formCatIncomeLabel")}</label>
+                          <FancySelect id={source + "-review-income"}
                             value={draft.customIncome ? INCOME_CUSTOM : draft.category}
                             options={incomeOptions}
                             placeholder={t("finance.bidvInbox.chooseCategory")}
@@ -368,18 +372,18 @@ export function BidvImportInbox({ authToken, expenseCategories, onApproved, revi
                         {t("finance.bidvInbox.internalTransfer")}
                       </label>
                       {draft.internalTransfer && (
-                        <p className="text-slate-400 sm:col-span-2">{t("finance.bidvInbox.transferHelp")}</p>
+                        <p className="text-slate-400 sm:col-span-2">{inboxText("transferHelp")}</p>
                       )}
-                      {!draft.internalTransfer && (
+                      {source === "bidv" && !draft.internalTransfer && (
                         <div className="sm:col-span-2">
                           <label className="flex items-center gap-2 min-h-10 text-slate-300">
                             <input type="checkbox" className="size-4 accent-sky-500" checked={draft.autoApprove}
                               disabled={!draft.canAutoApprove || draft.type !== draft.detectedType}
-                              aria-describedby="bidv-rule-help"
+                              aria-describedby={source + "-rule-help"}
                               onChange={event => setDraft({ ...draft, autoApprove: event.target.checked })} />
                             {t("finance.bidvInbox.allowAutoApproval")}
                           </label>
-                          <p id="bidv-rule-help" className="text-slate-400">
+                          <p id={source + "-rule-help"} className="text-slate-400">
                             {item.counterparty && draft.type === draft.detectedType
                               ? t("finance.bidvInbox.ruleHelp", { bank: item.counterparty.bank, ending: item.counterparty.accountEnding })
                               : t("finance.bidvInbox.ruleUnavailable")}
