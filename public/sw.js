@@ -48,7 +48,7 @@ self.addEventListener("fetch", event => {
   if (url.origin !== self.location.origin) return; // ignore cross-origin
 
   // Never intercept the realtime Server-Sent Events stream.
-  if (url.pathname === "/api/realtime") return;
+  if (url.pathname === "/api/realtime" || request.cache === "no-store") return;
 
   // API GET: network-first, fall back to cached last-known-good.
   if (url.pathname.startsWith("/api/")) {

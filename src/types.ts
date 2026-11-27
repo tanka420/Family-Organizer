@@ -83,6 +83,7 @@ export interface Notification {
   content: string;
   type: "task" | "plan" | "note" | "finance" | "medication" | "system";
   isRead: boolean;
+  bidvImportId?: string;
   createdAt: string;
 }
 
@@ -229,6 +230,54 @@ export interface FinancialTransaction {
   creatorId: string;
   receiptImage?: string; // Base64 data-uri or image url
   createdAt: string;
+}
+
+type BidvReviewFields = Pick<FinancialTransaction, "type" | "amount" | "description" | "date">;
+
+export type BidvImportEvent = {
+  id: string;
+  receivedAt: string;
+  title: string;
+  body: string;
+  createdAt: string;
+} & (
+  | { status: "pending" }
+  | { status: "dismissed"; reviewedAt: string; reviewedBy: string }
+  | { status: "approved"; reviewedAt: string; reviewedBy: string; transactionId: string; autoApproved?: true }
+  | { status: "internal-transfer"; reviewedAt: string; reviewedBy: string; transfer: BidvReviewFields }
+);
+
+export type BidvImportReview =
+  | { action: "dismiss" }
+  | ({ action: "transfer" } & BidvReviewFields)
+  | ({ action: "approve"; category: string; rememberCategory?: true; autoApprove?: true } & BidvReviewFields);
+
+export interface BidvCounterparty {
+  bank: string;
+  accountEnding: string;
+}
+
+export interface BidvAutoApprovalRule extends BidvCounterparty {
+  id: string;
+  type: TransactionType;
+  category: string;
+  enabled: boolean;
+}
+
+export type PendingBidvImport = Extract<BidvImportEvent, { status: "pending" }> & {
+  counterparty: BidvCounterparty | null;
+  suggestion: {
+    type: TransactionType | "";
+    amount: number | null;
+    date: string;
+    description: string;
+    category: string;
+  };
+};
+
+export interface BidvCategoryRule {
+  id: string;
+  category: string;
 }
 
 export interface RewardPointEntry {
@@ -589,6 +638,9 @@ export interface FamilyOrganizerDB {
   plans: FamilyPlan[];
   notes: Note[];
   transactions: FinancialTransaction[];
+  bidvImports: BidvImportEvent[];
+  bidvCategoryRules: BidvCategoryRule[];
+  bidvAutoApprovalRules: (BidvAutoApprovalRule & { approvedBy: string })[];
   rewardLedger: RewardPointEntry[];
   rewardItems: RewardItem[];
   budgets: BudgetLimit[];

@@ -6,7 +6,7 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-import { FamilyOrganizerDB } from "../src/types.js";
+import type { FamilyOrganizerDB } from "../src/types.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "family.db");
@@ -21,6 +21,9 @@ const COLLECTIONS: { key: keyof FamilyOrganizerDB; table: string }[] = [
   { key: "plans", table: "plans" },
   { key: "notes", table: "notes" },
   { key: "transactions", table: "transactions" },
+  { key: "bidvImports", table: "bidv_imports" },
+  { key: "bidvCategoryRules", table: "bidv_category_rules" },
+  { key: "bidvAutoApprovalRules", table: "bidv_auto_approval_rules" },
   { key: "rewardLedger", table: "reward_ledger" },
   { key: "rewardItems", table: "reward_items" },
   { key: "budgets", table: "budgets" },
@@ -120,6 +123,11 @@ export const sqliteSave = db.transaction((data: FamilyOrganizerDB) => {
     setMetaStmt.run(`singleton:${key}`, JSON.stringify((data as any)[key] ?? null));
   }
 }) as unknown as (data: FamilyOrganizerDB) => void;
+
+// Lock immediately when a decision needs to read and update more than one collection.
+export function sqliteWriteTransaction<T>(applyChanges: () => T): T {
+  return db.transaction(applyChanges).immediate();
+}
 
 /** Chụp nguyên file SQLite (gồm cả phần đang nằm trong WAL) ra `dest` — dùng trước khi cập nhật app. */
 export async function sqliteBackupTo(dest: string): Promise<void> {
