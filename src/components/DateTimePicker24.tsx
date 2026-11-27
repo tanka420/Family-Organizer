@@ -116,7 +116,8 @@ export function DateInputDMY({
   placeholder = "dd/mm/yyyy",
   min,
   max,
-  ariaLabel
+  ariaLabel,
+  name
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -126,6 +127,7 @@ export function DateInputDMY({
   min?: string;
   max?: string;
   ariaLabel?: string;
+  name?: string;
 }) {
   const { t } = useTranslation();
   const monthsShort = React.useMemo(() => t("datePicker.monthsShort", { returnObjects: true }) as string[], [t]);
@@ -280,6 +282,7 @@ export function DateInputDMY({
       <input
         type="text"
         inputMode="numeric"
+        name={name}
         aria-label={ariaLabel}
         required={required}
         value={draft}

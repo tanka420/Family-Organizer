@@ -109,7 +109,7 @@
       "ruleOn": "Đang bật",
       "ruleOff": "Đã tắt",
       "allowAutoApproval": "Cho phép tự duyệt lần sau",
-      "ruleHelp": "Family sẽ ghi sổ theo hạng mục đã chọn khi giao dịch cùng chiều với {{bank}}, tài khoản đuôi {{ending}}.",
+      "ruleHelp": "Family sẽ ghi sổ theo hạng mục đã chọn khi giao dịch cùng chiều với {{bank}}, tài khoản đuôi {{ending}}. Nội dung ghi chép được lấy từ từng thông báo mới.",
       "ruleUnavailable": "Cần xác định được ngân hàng, tài khoản đối tác và chiều giao dịch để bật tự duyệt.",
       "refresh": "Tải lại hàng chờ {{bank}}",
       "loading": "Đang tải thông báo {{bank}}…",

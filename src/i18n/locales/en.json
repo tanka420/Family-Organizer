@@ -137,7 +137,7 @@
       "ruleOn": "On",
       "ruleOff": "Off",
       "allowAutoApproval": "Auto-approve future matches",
-      "ruleHelp": "Family will use the selected category to record transactions in the same direction with {{bank}}, account ending {{ending}}.",
+      "ruleHelp": "Family will use the selected category to record transactions in the same direction with {{bank}}, account ending {{ending}}. The description comes from each new notification.",
       "ruleUnavailable": "Auto-approval needs a recognized bank, counterparty account, and transaction direction.",
       "refresh": "Refresh {{bank}} inbox",
       "loading": "Loading {{bank}} notifications…",
