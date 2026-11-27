@@ -1313,7 +1313,9 @@ export class FamilyDB {
         const rule = db.bidvAutoApprovalRules.find(item => item.id === counterparty?.id && item.enabled === true);
         if (rule && type && amount !== null && date && rule.type === type && rule.category &&
             (type !== TransactionType.EXPENSE || this.isBidvExpenseCategory(db, rule.category))) {
-          const transactionId = this.recordBankImportTransaction(db, { type, amount, date, description, category: rule.category }, rule.approvedBy, createdAt);
+          const transactionId = this.recordBankImportTransaction(db, {
+            type, amount, date, description: rule.description || description, category: rule.category,
+          }, rule.approvedBy, createdAt);
           imports.push({ ...event, status: "approved", autoApproved: true, transactionId,
             reviewedAt: createdAt, reviewedBy: rule.approvedBy });
           db.activityLogs.unshift({ id: "log_" + crypto.randomUUID(), userId: rule.approvedBy,
@@ -1436,7 +1438,10 @@ export class FamilyDB {
           const partner = identifyBidvCounterparty(parsed.type, parsed.memo);
           if (!partner || parsed.type !== type) return { status: "invalid-auto-rule" };
           db.bidvAutoApprovalRules = db.bidvAutoApprovalRules.filter(rule => rule.id !== partner.id);
-          db.bidvAutoApprovalRules.unshift({ ...partner, type, category, enabled: true, approvedBy: userId });
+          db.bidvAutoApprovalRules.unshift({
+            ...partner, type, category, enabled: true, approvedBy: userId,
+            ...(review.reuseDescription && { description }),
+          });
         }
         const id = this.recordBankImportTransaction(db, { type, amount, date, category, description }, userId, reviewedAt);
         imports[index] = { ...decision, status: "approved", transactionId: id };

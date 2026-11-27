@@ -36,6 +36,7 @@ interface ReviewDraft {
   detectedType: TransactionType | "";
   canAutoApprove: boolean;
   autoApprove: boolean;
+  reuseDescription: boolean;
   internalTransfer: boolean;
 }
 
@@ -134,14 +135,14 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
       id: item.id, type, amount: amount ?? 0, date, category,
       description: description || fallbackDescription(type),
       customIncome: type === TransactionType.INCOME && Boolean(category) && !isPresetIncome(category),
-      detectedType: type, canAutoApprove: Boolean(item.counterparty), autoApprove: false, internalTransfer: false,
+      detectedType: type, canAutoApprove: Boolean(item.counterparty), autoApprove: false, reuseDescription: false, internalTransfer: false,
     });
   }
 
   function changeDirection(type: TransactionType) {
     if (!draft) return;
     setDraft({
-      ...draft, type, category: "", customIncome: false, autoApprove: false,
+      ...draft, type, category: "", customIncome: false, autoApprove: false, reuseDescription: false,
       description: draft.description === fallbackDescription(draft.type) ? fallbackDescription(type) : draft.description,
     });
   }
@@ -196,11 +197,12 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
       setError("invalidReview");
       return;
     }
-    const { type, category, description, autoApprove, internalTransfer } = draft;
+    const { type, category, description, autoApprove, reuseDescription, internalTransfer } = draft;
     const fields = { type, amount, date, description };
     const review: BidvImportReview = internalTransfer
       ? { action: "transfer", ...fields }
-      : { action: "approve", ...fields, category, ...(autoApprove && { autoApprove: true }) };
+      : { action: "approve", ...fields, category,
+          ...(autoApprove && { autoApprove: true, ...(reuseDescription && { reuseDescription: true }) }) };
     void submitReview(draft.id, review);
   }
 
@@ -292,6 +294,11 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
                       ? expenseCategories.find(option => option.value === rule.category)?.label ?? t("finance.bidvInbox.unavailableCategory")
                       : rule.category}
                   </p>
+                  {rule.description && (
+                    <p className="break-words text-xs text-slate-400">
+                      {t("finance.bidvInbox.savedDescription", { description: rule.description })}
+                    </p>
+                  )}
                 </div>
                 <label className="flex items-center gap-2 min-h-10 text-xs text-slate-300">
                   <input type="checkbox" role="switch" checked={rule.enabled} disabled={loading || saving}
@@ -414,7 +421,7 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
                 </label>
                 <label className="flex items-center gap-2 min-h-10 text-slate-300 sm:col-span-2">
                   <input type="checkbox" className="size-4 accent-sky-500" checked={draft.internalTransfer}
-                    onChange={event => setDraft({ ...draft, internalTransfer: event.target.checked, autoApprove: false })} />
+                    onChange={event => setDraft({ ...draft, internalTransfer: event.target.checked, autoApprove: false, reuseDescription: false })} />
                   {t("finance.bidvInbox.internalTransfer")}
                 </label>
                 {draft.internalTransfer && (
@@ -426,7 +433,7 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
                       <input type="checkbox" className="size-4 accent-sky-500" checked={draft.autoApprove}
                         disabled={!draft.canAutoApprove || draft.type !== draft.detectedType}
                         aria-describedby={source + "-rule-help"}
-                        onChange={event => setDraft({ ...draft, autoApprove: event.target.checked })} />
+                        onChange={event => setDraft({ ...draft, autoApprove: event.target.checked, reuseDescription: false })} />
                       {t("finance.bidvInbox.allowAutoApproval")}
                     </label>
                     <p id={source + "-rule-help"} className="text-slate-400">
@@ -434,6 +441,13 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
                         ? t("finance.bidvInbox.ruleHelp", { bank: activeItem.counterparty.bank, ending: activeItem.counterparty.accountEnding })
                         : t("finance.bidvInbox.ruleUnavailable")}
                     </p>
+                    {draft.autoApprove && (
+                      <label className="flex items-center gap-2 min-h-10 text-slate-300">
+                        <input type="checkbox" className="size-4 accent-sky-500" checked={draft.reuseDescription}
+                          onChange={event => setDraft({ ...draft, reuseDescription: event.target.checked })} />
+                        {t("finance.bidvInbox.reuseDescription")}
+                      </label>
+                    )}
                   </div>
                 )}
               </fieldset>

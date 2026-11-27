@@ -77,7 +77,7 @@ export function parseBidvEvent(value: unknown, appName = "SmartBanking"): BidvEv
 
 export function parseBidvReview(value: unknown): BidvImportReview | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { action, type, amount, date, category, description, rememberCategory, autoApprove } = value as Record<string, unknown>;
+  const { action, type, amount, date, category, description, rememberCategory, autoApprove, reuseDescription } = value as Record<string, unknown>;
   if (action === "dismiss") return { action };
   if ((action !== "approve" && action !== "transfer") ||
       (type !== TransactionType.INCOME && type !== TransactionType.EXPENSE) ||
@@ -87,18 +87,23 @@ export function parseBidvReview(value: unknown): BidvImportReview | null {
     return null;
   }
   const fields = { type, amount, date, description: description.trim() };
-  if (action === "transfer") return autoApprove === undefined ? { action, ...fields } : null;
+  if (action === "transfer") {
+    return autoApprove === undefined && reuseDescription === undefined ? { action, ...fields } : null;
+  }
 
   if (typeof category !== "string" || category.length > 100 || INVALID_TEXT.test(category) ||
       (rememberCategory !== undefined && typeof rememberCategory !== "boolean") ||
       (autoApprove !== undefined && typeof autoApprove !== "boolean") ||
+      (reuseDescription !== undefined && typeof reuseDescription !== "boolean") ||
+      (reuseDescription === true && autoApprove !== true) ||
       ((rememberCategory === true || autoApprove === true) && !category.trim())) {
     return null;
   }
 
   return { action, ...fields, category: category.trim() || ExpenseCategory.OTHER,
     ...(rememberCategory === true && { rememberCategory: true }),
-    ...(autoApprove === true && { autoApprove: true }) };
+    ...(autoApprove === true && { autoApprove: true }),
+    ...(reuseDescription === true && { reuseDescription: true }) };
 }
 
 const FIELD_LABEL = /(?:^|[\s;|])(Số tiền GD|Nội dung(?: GD| giao dịch| chuyển khoản)?|ND(?: GD)?|Thời gian(?: GD| giao dịch)?|Ngày(?: giờ)?(?: GD| giao dịch)?|Số dư(?: khả dụng| hiện tại| cuối)?|Số (?:TK|tài khoản)|TK|Tài khoản(?: thanh toán)?|Mã (?:GD|giao dịch|tham chiếu)|Số tham chiếu|Ref(?:erence)?)[ \t]*:/giu;
