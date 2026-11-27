@@ -3,6 +3,12 @@
 Ghi theo phiên bản, mới nhất ở trên. Nội dung mục của từng phiên bản được dùng làm ghi chú
 hiển thị trong **Thiết lập → Hệ thống & Sao lưu → Phiên bản & Cập nhật**.
 
+## [1.3.0] - 2026-11-27
+
+- **MyVIB:** Nhận thông báo giao dịch tài khoản từ Phím tắt trên iPhone, điền sẵn chiều thu hoặc chi, số tiền và ngày. Quản trị viên duyệt trong **Chi tiêu → MyVIB**. Thông báo có nhãn thẻ tín dụng được bỏ qua.
+- **Duyệt thông báo BIDV và MyVIB:** Mở hộp thoại với ngày dạng `dd/mm/yyyy` và số tiền phân cách hàng nghìn như biểu mẫu Thu chi.
+- **Tự duyệt BIDV:** Có thể giữ lại nội dung ghi chép đã nhập cho những giao dịch khớp cùng quy tắc. Số tiền và ngày lấy từ thông báo mới.
+
 ## [1.2.0] - 2026-11-27
 
 - **BIDV SmartBanking:** Nhận thông báo từ Phím tắt trên iPhone và đưa khoản thu, chi vào hàng chờ trong mục Chi tiêu. Bấm thông báo trong Family để mở giao dịch cần duyệt.
