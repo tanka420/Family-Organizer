@@ -257,7 +257,7 @@ export type BidvImportEvent = {
 export type BidvImportReview =
   | { action: "dismiss" }
   | ({ action: "transfer" } & BidvReviewFields)
-  | ({ action: "approve"; category: string; rememberCategory?: true; autoApprove?: true } & BidvReviewFields);
+  | ({ action: "approve"; category: string; rememberCategory?: true; autoApprove?: true; reuseDescription?: true } & BidvReviewFields);
 
 export interface BidvCounterparty {
   bank: string;
@@ -268,6 +268,7 @@ export interface BidvAutoApprovalRule extends BidvCounterparty {
   id: string;
   type: TransactionType;
   category: string;
+  description?: string;
   enabled: boolean;
 }
 

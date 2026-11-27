@@ -99,6 +99,16 @@ describe("BIDV review input", () => {
     });
   });
 
+  it("keeps a description only for an explicitly enabled auto-approval rule", () => {
+    expect(parseBidvReview({ ...approval, autoApprove: true, reuseDescription: true }))
+      .toMatchObject({ autoApprove: true, reuseDescription: true });
+    expect(parseBidvReview({ ...approval, autoApprove: true, reuseDescription: false }))
+      .not.toHaveProperty("reuseDescription");
+    expect(parseBidvReview({ ...approval, reuseDescription: true })).toBeNull();
+    expect(parseBidvReview({ ...approval, autoApprove: true, reuseDescription: "true" })).toBeNull();
+    expect(parseBidvReview({ ...approval, action: "transfer", reuseDescription: true })).toBeNull();
+  });
+
   it("accepts explicit opt-in and a separate transfer decision without a category", () => {
     expect(parseBidvReview({ ...approval, rememberCategory: true })).toMatchObject({ rememberCategory: true });
     const { category: _, ...fields } = approval;
