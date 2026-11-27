@@ -41,7 +41,7 @@ type BidvEventParseResult =
   | { event: BidvEventInput }
   | { error: string; fields?: readonly (keyof BidvEventInput)[] };
 
-export function parseBidvEvent(value: unknown): BidvEventParseResult {
+export function parseBidvEvent(value: unknown, appName = "SmartBanking"): BidvEventParseResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { error: "Nội dung yêu cầu phải là một đối tượng JSON." };
   }
@@ -70,7 +70,7 @@ export function parseBidvEvent(value: unknown): BidvEventParseResult {
   const cleanTitle = title.trim();
   const cleanBody = body.trim();
   if (!cleanTitle && !cleanBody) {
-    return { error: "Title và Body đều trống. Hãy để thông báo SmartBanking mới kích hoạt tự động hóa.", fields: ["title", "body"] };
+    return { error: `Title và Body đều trống. Hãy để thông báo ${appName} mới kích hoạt tự động hóa.`, fields: ["title", "body"] };
   }
   return { event: { eventId, receivedAt: timestamp, title: cleanTitle, body: cleanBody } };
 }
@@ -117,7 +117,7 @@ function normalizedText(value: string): string {
   return value.normalize("NFC").toLocaleLowerCase("vi").replace(/\s+/g, " ").trim();
 }
 
-function transactionDate(value: string): string | null {
+export function transactionDate(value: string): string | null {
   const match = /^(?:\d{1,2}:\d{2}(?::\d{2})?\s+)?(?:(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})|(\d{4})-(\d{2})-(\d{2}))(?=\s|T|$)/.exec(value);
   if (!match) return null;
   const [, day, month, year, isoYear, isoMonth, isoDay] = match;
@@ -160,24 +160,28 @@ export function readBidvNotification(body: string, receivedAt: string) {
     if (/^(?:thời gian|ngày)(?: |$)/.test(label) && !date) date = transactionDate(value);
   });
 
-  const signed = amounts.length === 1 ? SIGNED_AMOUNT.exec(amounts[0]) : null;
-  const amount = signed ? Number(signed[2].replace(/[,.]/g, "")) : null;
-  const validAmount = amount !== null && Number.isSafeInteger(amount) && amount > 0;
-  const type = validAmount && signed
-    ? (signed[1] === "+" ? TransactionType.INCOME : TransactionType.EXPENSE)
-    : "";
-
-  const received = new Date(receivedAt);
-  const parts = Number.isNaN(received.getTime()) ? null : Object.fromEntries(
-    VN_DATE.formatToParts(received).map(part => [part.type, part.value]),
-  );
+  const { type, amount } = readSignedBankAmount(amounts.length === 1 ? amounts[0] : "");
   return {
     type,
-    amount: validAmount ? amount : null,
-    date: date ?? (parts ? [parts.year, parts.month, parts.day].join("-") : ""),
+    amount,
+    date: date ?? vietnamBankDate(receivedAt),
     description: describeBidvTransfer(type, memo),
     memo,
   } satisfies Omit<PendingBidvImport["suggestion"], "category"> & { memo: string };
+}
+
+export function readSignedBankAmount(value: string): { type: TransactionType | ""; amount: number | null } {
+  const signed = SIGNED_AMOUNT.exec(value);
+  const amount = signed ? Number(signed[2].replace(/[,.]/g, "")) : 0;
+  if (!signed || !Number.isSafeInteger(amount) || amount <= 0) return { type: "", amount: null };
+  return { type: signed[1] === "+" ? TransactionType.INCOME : TransactionType.EXPENSE, amount };
+}
+
+export function vietnamBankDate(receivedAt: string): string {
+  const received = new Date(receivedAt);
+  if (Number.isNaN(received.getTime())) return "";
+  const parts = Object.fromEntries(VN_DATE.formatToParts(received).map(part => [part.type, part.value]));
+  return [parts.year, parts.month, parts.day].join("-");
 }
 
 // SmartBanking puts the counterparty inside the memo, separately from Tài khoản thanh toán.

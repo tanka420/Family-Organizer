@@ -17,6 +17,8 @@ import {
   FinancialTransaction,
   AccountType,
   TransactionType,
+  BANK_IMPORT_LABELS,
+  type BankImportSource,
   type PendingBidvImport,
   type BidvImportReview,
   type BidvAutoApprovalRule,
@@ -52,6 +54,7 @@ import { sqliteIsEmpty, sqliteLoad, sqliteSave, sqliteCheckpoint, sqliteWriteTra
 import { deleteMediaByUrl } from "./media.js";
 import { dispatchPush } from "./push.js";
 import { bidvCategoryRuleId, identifyBidvCounterparty, readBidvNotification, suggestBidvCategory, type BidvEventInput } from "./bidvImport.js";
+import { readMyVibNotification } from "./myvibImport.js";
 
 // Whitelist of valid asset types (mirrors AssetType in src/types.ts).
 const VALID_ASSET_TYPES = new Set<string>([
@@ -187,6 +190,7 @@ const initialDBState = (): FamilyOrganizerDB => {
     notes: [],
     transactions: [],
     bidvImports: [],
+    myvibImports: [],
     bidvCategoryRules: [],
     bidvAutoApprovalRules: [],
     rewardLedger: [],
@@ -223,6 +227,7 @@ function normalizeDB(db: any): FamilyOrganizerDB {
   db.notes = db.notes || [];
   db.transactions = db.transactions || [];
   db.bidvImports = Array.isArray(db.bidvImports) ? db.bidvImports : [];
+  db.myvibImports = Array.isArray(db.myvibImports) ? db.myvibImports : [];
   db.bidvCategoryRules = Array.isArray(db.bidvCategoryRules) ? db.bidvCategoryRules : [];
   db.bidvAutoApprovalRules = Array.isArray(db.bidvAutoApprovalRules) ? db.bidvAutoApprovalRules : [];
   db.rewardLedger = db.rewardLedger || [];
@@ -1288,11 +1293,13 @@ export class FamilyDB {
       (Object.hasOwn(this.TX_CATEGORY_LABELS, category) || db.customCategories.some(item => item.id === category));
   }
 
-  public static receiveBidvImport(input: BidvEventInput): { status: "accepted" | "duplicate" | "conflict"; transactionId?: string } {
+  public static receiveBankImport(source: BankImportSource, input: BidvEventInput): { status: "accepted" | "duplicate" | "conflict"; transactionId?: string } {
     return sqliteWriteTransaction(() => {
       const db = this.readRaw();
-      const { eventId, receivedAt, title, body } = input;
-      const previous = db.bidvImports.find(event => event.id === eventId);
+      const { receivedAt, title, body } = input;
+      const eventId = source === "myvib" ? "myvib:" + input.eventId : input.eventId;
+      const imports = source === "bidv" ? db.bidvImports : db.myvibImports;
+      const previous = imports.find(event => event.id === eventId);
       if (previous) {
         const sameEvent = previous.receivedAt === receivedAt && previous.title === title && previous.body === body;
         return { status: sameEvent ? "duplicate" : "conflict" };
@@ -1300,26 +1307,29 @@ export class FamilyDB {
 
       const createdAt = new Date().toISOString();
       const event = { id: eventId, receivedAt, title, body, createdAt };
-      const { type, amount, date, description, memo } = readBidvNotification(body, receivedAt);
-      const counterparty = identifyBidvCounterparty(type, memo);
-      const rule = db.bidvAutoApprovalRules.find(item => item.id === counterparty?.id && item.enabled === true);
-      if (rule && type && amount !== null && date && rule.type === type && rule.category &&
-          (type !== TransactionType.EXPENSE || this.isBidvExpenseCategory(db, rule.category))) {
-        const transactionId = this.recordBidvTransaction(db, { type, amount, date, description, category: rule.category }, rule.approvedBy, createdAt);
-        db.bidvImports.push({ ...event, status: "approved", autoApproved: true, transactionId,
-          reviewedAt: createdAt, reviewedBy: rule.approvedBy });
-        db.activityLogs.unshift({ id: "log_" + crypto.randomUUID(), userId: rule.approvedBy,
-          username: "BIDV", action: "Tự duyệt giao dịch BIDV", details: "Đã ghi sổ theo quy tắc tự duyệt BIDV.", createdAt });
-        db.activityLogs = db.activityLogs.slice(0, 300);
-        sqliteSave(db);
-        return { status: "accepted", transactionId };
+      if (source === "bidv") {
+        const { type, amount, date, description, memo } = readBidvNotification(body, receivedAt);
+        const counterparty = identifyBidvCounterparty(type, memo);
+        const rule = db.bidvAutoApprovalRules.find(item => item.id === counterparty?.id && item.enabled === true);
+        if (rule && type && amount !== null && date && rule.type === type && rule.category &&
+            (type !== TransactionType.EXPENSE || this.isBidvExpenseCategory(db, rule.category))) {
+          const transactionId = this.recordBankImportTransaction(db, { type, amount, date, description, category: rule.category }, rule.approvedBy, createdAt);
+          imports.push({ ...event, status: "approved", autoApproved: true, transactionId,
+            reviewedAt: createdAt, reviewedBy: rule.approvedBy });
+          db.activityLogs.unshift({ id: "log_" + crypto.randomUUID(), userId: rule.approvedBy,
+            username: "BIDV", action: "Tự duyệt giao dịch BIDV", details: "Đã ghi sổ theo quy tắc tự duyệt BIDV.", createdAt });
+          db.activityLogs = db.activityLogs.slice(0, 300);
+          sqliteSave(db);
+          return { status: "accepted", transactionId };
+        }
       }
 
-      db.bidvImports.push({ ...event, status: "pending" });
+      imports.push({ ...event, status: "pending" });
       for (const user of db.users.filter(user => user.role === UserRole.ADMIN && !user.isDeleted)) {
         db.notifications.unshift({
           id: "notif_" + crypto.randomUUID(), userId: user.id, type: "finance", bidvImportId: eventId,
-          title: "Giao dịch BIDV chờ duyệt", content: "Mở Chi tiêu để xem và duyệt thông báo SmartBanking.",
+          title: `Giao dịch ${BANK_IMPORT_LABELS[source]} chờ duyệt`,
+          content: "Mở Chi tiêu để xem và duyệt thông báo giao dịch.",
           createdAt, isRead: false,
         });
       }
@@ -1329,7 +1339,7 @@ export class FamilyDB {
     });
   }
 
-  private static recordBidvTransaction(
+  private static recordBankImportTransaction(
     db: FamilyOrganizerDB,
     fields: Pick<FinancialTransaction, "type" | "amount" | "date" | "description" | "category">,
     creatorId: string,
@@ -1355,10 +1365,14 @@ export class FamilyDB {
     });
   }
 
-  public static getPendingBidvImports(): PendingBidvImport[] {
+  public static getPendingBankImports(source: BankImportSource): PendingBidvImport[] {
     const db = this.readRaw();
     const savedCategories = new Map(db.bidvCategoryRules.map(rule => [rule.id, rule.category]));
-    return db.bidvImports.filter(event => event.status === "pending").reverse().map(event => {
+    const imports = source === "bidv" ? db.bidvImports : db.myvibImports;
+    return imports.filter(event => event.status === "pending").reverse().map(event => {
+      if (source === "myvib") {
+        return { ...event, counterparty: null, suggestion: readMyVibNotification(event.title, event.body, event.receivedAt) };
+      }
       const { memo, ...fields } = readBidvNotification(event.body, event.receivedAt);
       const ruleId = fields.type && bidvCategoryRuleId(fields.type, memo);
       const learned = ruleId ? savedCategories.get(ruleId) : undefined;
@@ -1371,12 +1385,16 @@ export class FamilyDB {
     });
   }
 
-  public static reviewBidvImport(eventId: string, review: BidvImportReview, userId: string, username: string): BidvReviewResult {
+  public static reviewBankImport(source: BankImportSource, eventId: string, review: BidvImportReview, userId: string, username: string): BidvReviewResult {
     return sqliteWriteTransaction(() => {
       const db = this.readRaw();
-      const index = db.bidvImports.findIndex(event => event.id === eventId);
-      const event = db.bidvImports[index];
+      const imports = source === "bidv" ? db.bidvImports : db.myvibImports;
+      const index = imports.findIndex(event => event.id === eventId);
+      const event = imports[index];
       if (!event) return { status: "not-found" };
+      if (source !== "bidv" && review.action === "approve" && (review.autoApprove || review.rememberCategory)) {
+        return { status: "invalid-auto-rule" };
+      }
       if (event.status === "dismissed") {
         return { status: review.action === "dismiss" ? "dismissed" : "conflict" };
       }
@@ -1402,11 +1420,11 @@ export class FamilyDB {
       const decision = { ...event, reviewedBy: userId, reviewedAt };
       let result: BidvReviewResult;
       if (review.action === "dismiss") {
-        db.bidvImports[index] = { ...decision, status: "dismissed" };
+        imports[index] = { ...decision, status: "dismissed" };
         result = { status: "dismissed" };
       } else if (review.action === "transfer") {
         const { type, amount, date, description } = review;
-        db.bidvImports[index] = { ...decision, status: "internal-transfer", transfer: { type, amount, date, description } };
+        imports[index] = { ...decision, status: "internal-transfer", transfer: { type, amount, date, description } };
         result = { status: "internal-transfer" };
       } else {
         const { type, amount, date, category, description } = review;
@@ -1420,8 +1438,8 @@ export class FamilyDB {
           db.bidvAutoApprovalRules = db.bidvAutoApprovalRules.filter(rule => rule.id !== partner.id);
           db.bidvAutoApprovalRules.unshift({ ...partner, type, category, enabled: true, approvedBy: userId });
         }
-        const id = this.recordBidvTransaction(db, { type, amount, date, category, description }, userId, reviewedAt);
-        db.bidvImports[index] = { ...decision, status: "approved", transactionId: id };
+        const id = this.recordBankImportTransaction(db, { type, amount, date, category, description }, userId, reviewedAt);
+        imports[index] = { ...decision, status: "approved", transactionId: id };
         if (review.rememberCategory) {
           const { memo } = readBidvNotification(event.body, event.receivedAt);
           const ruleId = bidvCategoryRuleId(type, memo);
@@ -1434,16 +1452,17 @@ export class FamilyDB {
       }
 
       db.notifications = db.notifications.filter(notification => notification.bidvImportId !== eventId);
+      const label = BANK_IMPORT_LABELS[source];
       const details = {
-        approved: "Đã ghi sổ một giao dịch BIDV.",
-        "internal-transfer": "Đã đánh dấu một thông báo BIDV là chuyển nội bộ.",
-        dismissed: "Đã bỏ qua một thông báo BIDV.",
+        approved: `Đã ghi sổ một giao dịch ${label}.`,
+        "internal-transfer": `Đã đánh dấu một thông báo ${label} là chuyển nội bộ.`,
+        dismissed: `Đã bỏ qua một thông báo ${label}.`,
       };
       db.activityLogs.unshift({
         id: "log_" + crypto.randomUUID(),
         userId,
         username,
-        action: "Duyệt giao dịch BIDV",
+        action: `Duyệt giao dịch ${label}`,
         details: details[result.status],
         createdAt: reviewedAt,
       });

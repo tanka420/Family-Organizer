@@ -22,6 +22,7 @@ const COLLECTIONS: { key: keyof FamilyOrganizerDB; table: string }[] = [
   { key: "notes", table: "notes" },
   { key: "transactions", table: "transactions" },
   { key: "bidvImports", table: "bidv_imports" },
+  { key: "myvibImports", table: "myvib_imports" },
   { key: "bidvCategoryRules", table: "bidv_category_rules" },
   { key: "bidvAutoApprovalRules", table: "bidv_auto_approval_rules" },
   { key: "rewardLedger", table: "reward_ledger" },

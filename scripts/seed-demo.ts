@@ -834,6 +834,7 @@ const demoDB: FamilyOrganizerDB = {
   notes,
   transactions,
   bidvImports: [],
+  myvibImports: [],
   bidvCategoryRules: [],
   bidvAutoApprovalRules: [],
   rewardLedger,

@@ -12,7 +12,7 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { FamilyDB, verifyPassword, getSessionSecret, getAppSettings, setAppSetting } from "./server/db.js";
 import { sqliteAppendServerMetric, sqliteGetServerMetrics } from "./server/sqlite.js";
-import { UserRole, isLimitedViewer, DishSlot, MealIngredient, DOCUMENT_TYPE_LABELS } from "./src/types.js";
+import { UserRole, isLimitedViewer, DishSlot, MealIngredient, DOCUMENT_TYPE_LABELS, BANK_IMPORT_LABELS, type BankImportSource } from "./src/types.js";
 import { buildPlanFromLibrary, dedupeAndAnnotateGroceries } from "./src/utils/mealPlan.js";
 import { normalizeSearchText, matchesQuery, excerptAround } from "./src/utils/searchText.js";
 import { saveDataUrlToFile, UPLOADS_DIR } from "./server/media.js";
@@ -20,7 +20,7 @@ import { streamFullBackup, fullBackupFilename, importFullBackup } from "./server
 import { telegramBackupStatus, sendBackupToTelegram, runTelegramBackupTick } from "./server/telegramBackup.js";
 import { sendWeeklyDigest, runWeeklyDigestTick } from "./server/weeklyDigest.js";
 import { icsFeedToken, isValidIcsToken, buildIcsFeed } from "./server/icsFeed.js";
-import { createBidvImportRouter } from "./server/bidvImportRoute.js";
+import { bankImportToken, createBankImportRouter } from "./server/bidvImportRoute.js";
 import { parseBidvReview } from "./server/bidvImport.js";
 import { getVapidPublicKey, isPushConfigured, sendTestPush } from "./server/push.js";
 import { BUILD, checkReleases, getUpdateOverview, requestRestart, runUpdateTick, setAutoUpdate, startUpdate, updateAvailable, compareVersions, checkImmichRelease, getImmichOverview, startImmichUpdate } from "./server/updater.js";
@@ -134,11 +134,14 @@ async function geminiGenerate(ai: any, params: any, retries = 2): Promise<any> {
 }
 
 let maintenanceMode = false;
-// Apply the smaller BIDV request limit before the shared receipt-image parser.
-app.use("/api/finance/imports/bidv", createBidvImportRouter(() => maintenanceMode, transactionId => {
-  if (transactionId) broadcastSyncEvent("FINANCE_UPDATE", { txId: transactionId });
-  else broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
-}));
+// Apply the smaller bank import request limit before the shared receipt-image parser.
+const bankImportSources = Object.keys(BANK_IMPORT_LABELS) as BankImportSource[];
+for (const source of bankImportSources) {
+  app.use(`/api/finance/imports/${source}`, createBankImportRouter(source, () => maintenanceMode, transactionId => {
+    if (transactionId) broadcastSyncEvent("FINANCE_UPDATE", { txId: transactionId });
+    else broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+  }));
+}
 
 // Body parser - supports rich receipt images in finances
 app.use(express.json({ limit: "15mb" }));
@@ -1217,15 +1220,6 @@ app.get("/api/search", requireAuth, (req: AuthRequest, res: Response) => {
 
 const requireFinanceAdmin = requireRole([UserRole.ADMIN]);
 
-app.get("/api/finance/imports/bidv/pending", requireAuth, requireFinanceAdmin, (_req, res) => {
-  // Vary: * also prevents old PWA service workers from saving this response in Cache Storage.
-  res.set({ "Cache-Control": "no-store", Vary: "*" }).json({
-    imports: FamilyDB.getPendingBidvImports(),
-    rules: FamilyDB.getBidvAutoApprovalRules(),
-    receivingEnabled: Boolean(process.env.BIDV_IMPORT_TOKEN?.trim()),
-  });
-});
-
 app.patch("/api/finance/imports/bidv/rules/:id", requireAuth, requireFinanceAdmin, (req, res) => {
   res.set("Cache-Control", "no-store");
   if (!/^[a-f0-9]{64}$/.test(req.params.id) || typeof req.body?.enabled !== "boolean") {
@@ -1240,48 +1234,59 @@ app.patch("/api/finance/imports/bidv/rules/:id", requireAuth, requireFinanceAdmi
   res.json({ enabled: req.body.enabled });
 });
 
-app.post("/api/finance/imports/bidv/:id/review", requireAuth, requireFinanceAdmin, (req: AuthRequest, res: Response) => {
-  res.set("Cache-Control", "no-store");
-  const review = parseBidvReview(req.body);
-  if (!review) {
-    res.status(400).json({ error: "Thông tin duyệt giao dịch không hợp lệ." });
-    return;
-  }
+for (const source of bankImportSources) {
+  app.get(`/api/finance/imports/${source}/pending`, requireAuth, requireFinanceAdmin, (_req, res) => {
+    // Vary: * also prevents old PWA service workers from saving this response in Cache Storage.
+    res.set({ "Cache-Control": "no-store", Vary: "*" }).json({
+      imports: FamilyDB.getPendingBankImports(source),
+      rules: source === "bidv" ? FamilyDB.getBidvAutoApprovalRules() : [],
+      receivingEnabled: Boolean(bankImportToken(source)),
+    });
+  });
 
-  const { userId, username } = req.userSession!;
-  try {
-    const result = FamilyDB.reviewBidvImport(req.params.id, review, userId, username);
-    switch (result.status) {
-      case "approved":
-        if (result.changed) {
-          broadcastSyncEvent("FINANCE_UPDATE", { txId: result.transactionId });
-          broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
-        }
-        res.json({ status: result.status, transactionId: result.transactionId });
-        return;
-      case "dismissed":
-      case "internal-transfer":
-        broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
-        res.json({ status: result.status });
-        return;
-      case "not-found":
-        res.status(404).json({ error: "Không tìm thấy thông báo BIDV." });
-        return;
-      case "conflict":
-        res.status(409).json({ error: "Thông báo BIDV này đã được xử lý." });
-        return;
-      case "invalid-auto-rule":
-        res.status(400).json({ error: "Chưa xác định được tài khoản, ngân hàng và chiều giao dịch để bật tự duyệt." });
-        return;
-      case "invalid-category":
-        res.status(400).json({ error: "Hạng mục chi tiêu không hợp lệ." });
-        return;
+  app.post(`/api/finance/imports/${source}/:id/review`, requireAuth, requireFinanceAdmin, (req: AuthRequest, res: Response) => {
+    res.set("Cache-Control", "no-store");
+    const review = parseBidvReview(req.body);
+    if (!review) {
+      res.status(400).json({ error: "Thông tin duyệt giao dịch không hợp lệ." });
+      return;
     }
-  } catch {
-    console.error("Không lưu được kết quả duyệt giao dịch BIDV vào SQLite.");
-    res.status(500).json({ error: "Chưa lưu được kết quả duyệt. Hãy thử lại." });
-  }
-});
+
+    const { userId, username } = req.userSession!;
+    try {
+      const result = FamilyDB.reviewBankImport(source, req.params.id, review, userId, username);
+      switch (result.status) {
+        case "approved":
+          if (result.changed) {
+            broadcastSyncEvent("FINANCE_UPDATE", { txId: result.transactionId });
+            broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+          }
+          res.json({ status: result.status, transactionId: result.transactionId });
+          return;
+        case "dismissed":
+        case "internal-transfer":
+          broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+          res.json({ status: result.status });
+          return;
+        case "not-found":
+          res.status(404).json({ error: `Không tìm thấy thông báo ${BANK_IMPORT_LABELS[source]}.` });
+          return;
+        case "conflict":
+          res.status(409).json({ error: `Thông báo ${BANK_IMPORT_LABELS[source]} này đã được xử lý.` });
+          return;
+        case "invalid-auto-rule":
+          res.status(400).json({ error: "Chưa xác định được tài khoản, ngân hàng và chiều giao dịch để bật tự duyệt." });
+          return;
+        case "invalid-category":
+          res.status(400).json({ error: "Hạng mục chi tiêu không hợp lệ." });
+          return;
+      }
+    } catch {
+      console.error(`Không lưu được kết quả duyệt giao dịch ${BANK_IMPORT_LABELS[source]} vào SQLite.`);
+      res.status(500).json({ error: "Chưa lưu được kết quả duyệt. Hãy thử lại." });
+    }
+  });
+}
 
 app.get("/api/finance", requireAuth, requireRole([UserRole.ADMIN, UserRole.MEMBER]), (req: AuthRequest, res: Response) => {
   const transactions = FamilyDB.getTransactions();

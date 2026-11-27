@@ -84,6 +84,12 @@ Trên VPS, đặt `BIDV_IMPORT_TOKEN` riêng cho bản thật trong `/etc/family
 
 Chỉ đổi URL của Phím tắt sang `https://family.thanhtan.top/api/finance/imports/bidv` sau khi xác nhận bản thật đã lên phiên bản mới và endpoint trả `401` khi gửi POST thiếu token. Dùng token của bản thật trong Phím tắt.
 
+### Bật nhận thông báo tài khoản MyVIB
+
+Đặt `MYVIB_IMPORT_TOKEN` riêng cho MyVIB trong cùng tệp môi trường. Cập nhật Compose của bản cài và tạo lại container để biến mới có hiệu lực. Tạo tự động hóa riêng cho thông báo MyVIB trên iPhone. Dùng `POST https://family.thanhtan.top/api/finance/imports/myvib`, header `Authorization: Bearer <token MyVIB>` và bốn trường JSON dạng văn bản: `eventId`, `receivedAt` (ISO 8601 có múi giờ), `title` và `body`.
+
+Chọn **Chi tiêu → MyVIB** bằng tài khoản Admin để duyệt thông báo tài khoản. Đánh dấu **Chuyển nội bộ** nếu khoản chuyển là giữa các tài khoản của bạn. Thông báo có nhãn thẻ tín dụng được bỏ qua. Có thể gửi lại cùng `eventId` khi thử lại cùng một thông báo.
+
 ### Vận hành thủ công
 
 Vào tài khoản quản lý bằng `sudo -iu family` để thao tác với repo và dữ liệu. Với bản cài chưa có dịch vụ cập nhật, dùng các lệnh dưới đây để cập nhật qua terminal từ tài khoản quản trị VPS.

@@ -6,6 +6,12 @@
 import express, { type ErrorRequestHandler } from "express";
 import { isBidvImportToken, parseBidvEvent } from "./bidvImport.js";
 import { FamilyDB } from "./db.js";
+import { BANK_IMPORT_LABELS, type BankImportSource } from "../src/types.js";
+import { isMyVibCreditCardNotice } from "./myvibImport.js";
+
+export function bankImportToken(source: BankImportSource) {
+  return (source === "myvib" ? process.env.MYVIB_IMPORT_TOKEN : process.env.BIDV_IMPORT_TOKEN)?.trim();
+}
 
 const bidvJsonError: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error.type === "entity.too.large") {
@@ -17,19 +23,20 @@ const bidvJsonError: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 };
 
-export function createBidvImportRouter(isMaintenance: () => boolean, onAccepted: (transactionId?: string) => void) {
+export function createBankImportRouter(source: BankImportSource, isMaintenance: () => boolean, onAccepted: (transactionId?: string) => void) {
   const router = express.Router();
+  const label = BANK_IMPORT_LABELS[source];
   router.post(
     "/",
     (req, res, next) => {
       res.set("Cache-Control", "no-store");
-      const secret = process.env.BIDV_IMPORT_TOKEN?.trim();
+      const secret = bankImportToken(source);
       if (!secret) {
-        res.status(503).json({ error: "Nhận thông báo BIDV đang tắt." });
+        res.status(503).json({ error: `Nhận thông báo ${label} đang tắt.` });
         return;
       }
       if (!isBidvImportToken(req.get("Authorization"), secret)) {
-        res.status(401).json({ error: "Token nhận thông báo BIDV không hợp lệ." });
+        res.status(401).json({ error: `Token nhận thông báo ${label} không hợp lệ.` });
         return;
       }
       if (!req.is("application/json")) {
@@ -45,14 +52,19 @@ export function createBidvImportRouter(isMaintenance: () => boolean, onAccepted:
         res.status(503).json({ error: "Máy chủ đang khôi phục dữ liệu. Hãy thử lại." });
         return;
       }
-      const parsed = parseBidvEvent(req.body);
+      const parsed = parseBidvEvent(req.body, source === "myvib" ? label : "SmartBanking");
       if ("error" in parsed) {
         res.status(400).json(parsed);
         return;
       }
 
+      if (source === "myvib" && isMyVibCreditCardNotice(parsed.event.title, parsed.event.body)) {
+        res.json({ status: "ignored" });
+        return;
+      }
+
       try {
-        const { status, transactionId } = FamilyDB.receiveBidvImport(parsed.event);
+        const { status, transactionId } = FamilyDB.receiveBankImport(source, parsed.event);
         if (status === "conflict") {
           res.status(409).json({ error: "Mã thông báo đã được dùng cho nội dung khác." });
           return;
@@ -60,8 +72,8 @@ export function createBidvImportRouter(isMaintenance: () => boolean, onAccepted:
         if (status === "accepted") onAccepted(transactionId);
         res.status(status === "accepted" ? 201 : 200).json({ status });
       } catch {
-        console.error("Không lưu được thông báo BIDV vào SQLite.");
-        res.status(500).json({ error: "Chưa lưu được thông báo BIDV. Hãy thử lại." });
+        console.error(`Không lưu được thông báo ${label} vào SQLite.`);
+        res.status(500).json({ error: `Chưa lưu được thông báo ${label}. Hãy thử lại.` });
       }
     }
   );
