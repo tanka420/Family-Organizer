@@ -22,6 +22,7 @@ services:
       TZ: Asia/Ho_Chi_Minh
       GITHUB_REPO: tanka420/Family-Organizer
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      BIDV_IMPORT_TOKEN: ${BIDV_IMPORT_TOKEN:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}

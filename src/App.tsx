@@ -372,6 +372,9 @@ export default function App() {
   const [documents, setDocuments] = useState<FamilyDocument[]>([]);
   const [shoppingItems, setShoppingItems] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [bidvRevision, setBidvRevision] = useState(0);
+  const bidvReviewSeq = useRef(0);
+  const [bidvReviewRequest, setBidvReviewRequest] = useState<{ id: string; seq: number } | null>(null);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [backups, setBackups] = useState<any[]>([]);
   const [widgets, setWidgets] = useState<any>(null);
@@ -610,7 +613,7 @@ export default function App() {
   const fetchNotifications = async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch("/api/notifications", { headers: getAuthHeader() });
+      const res = await fetch("/api/notifications", { headers: getAuthHeader(), cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
@@ -797,6 +800,8 @@ export default function App() {
 
     sse.onopen = () => {
       setIsOnline(true);
+      fetchNotifications();
+      setBidvRevision(value => value + 1);
     };
 
     sse.onerror = () => {
@@ -823,6 +828,10 @@ export default function App() {
           case "NOTES_UPDATE":
             fetchNotes();
             fetchBackupsAndLogs();
+            break;
+          case "BIDV_IMPORTS_UPDATE":
+            fetchNotifications();
+            setBidvRevision(value => value + 1);
             break;
           case "FINANCE_UPDATE":
             fetchTransactions();
@@ -1661,6 +1670,10 @@ export default function App() {
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
   useModalA11y(mobileMenuOpen, closeMobileMenu, mobileMenuRef);
 
+  useEffect(() => {
+    if (activeTab !== "finance") setBidvReviewRequest(null);
+  }, [activeTab]);
+
   // Dismiss the notification popover when clicking outside of it
   useEffect(() => {
     if (!notifOpen) return;
@@ -1891,7 +1904,7 @@ export default function App() {
 
             {/* Notifications Alert Bells list */}
             <div className="relative" ref={notifRef}>
-              <button
+              <button type="button" aria-label="Thông báo" aria-expanded={notifOpen}
                 onClick={() => { setNotifOpen(!notifOpen); fetchNotifications(); }}
                 className="p-2.5 text-slate-400 hover:text-slate-100 bg-slate-950 neu-btn rounded-xl outline-none leading-none relative cursor-pointer group"
               >
@@ -1923,10 +1936,18 @@ export default function App() {
                       <p className="text-[11px] text-slate-500 italic py-6 text-center">Hộp thư trống...</p>
                     ) : (
                       notifications.map(n => (
-                        <div 
-                          key={n.id} 
-                          onClick={() => handleMarkNotifRead(n.id)}
-                          className={`p-2 rounded-xl text-left text-[11px] hover:bg-slate-850 relative group cursor-pointer border ${n.isRead ? "bg-slate-950/20 border-transparent text-slate-500" : "bg-slate-950 border-slate-800/60 text-slate-200 font-medium"}`}
+                        <button type="button"
+                          key={n.id}
+                          onClick={() => {
+                            if (n.bidvImportId) {
+                              const id = n.bidvImportId;
+                              setBidvReviewRequest({ id, seq: ++bidvReviewSeq.current });
+                              setActiveTab("finance");
+                              setNotifOpen(false);
+                            }
+                            void handleMarkNotifRead(n.id);
+                          }}
+                          className={`block w-full p-2 rounded-xl text-left text-[11px] hover:bg-slate-850 relative group cursor-pointer border ${n.isRead ? "bg-slate-950/20 border-transparent text-slate-500" : "bg-slate-950 border-slate-800/60 text-slate-200 font-medium"}`}
                         >
                           <p className="font-bold text-slate-300 pr-4">{n.title}</p>
                           <p className="text-slate-450 mt-0.5 leading-relaxed font-sans">{n.content}</p>
@@ -1935,7 +1956,7 @@ export default function App() {
                           {!n.isRead && (
                             <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-sky-500" />
                           )}
-                        </div>
+                        </button>
                       ))
                     )}
                   </div>
@@ -2057,6 +2078,11 @@ export default function App() {
                   debts={debts}
                   assets={assets}
                   widgets={widgets}
+                  authToken={authToken}
+                  onRefreshTransactions={fetchTransactions}
+                  bidvRevision={bidvRevision}
+                  bidvReviewRequest={bidvReviewRequest}
+                  onBidvReviewOpened={seq => setBidvReviewRequest(current => current?.seq === seq ? null : current)}
                   onSaveTransaction={handleSaveTransaction}
                   onSaveSavingsGoal={handleSaveSavingsGoal}
                   onDeleteSavingsGoal={handleDeleteSavingsGoal}

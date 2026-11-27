@@ -78,6 +78,12 @@ Sau khi app chạy ổn, cài dịch vụ một lần từ bản checkout đã k
 
 Dịch vụ build tag đã phát hành ở `tanka420/Family-Organizer` ngay trên VPS. Nó giữ bản sao SQLite và tự quay về phiên bản trước nếu bản mới không qua health check. `journalctl -u family-organizer-updater` hiển thị log chi tiết. Cấu hình Docker của dịch vụ nằm ở `/etc/family-organizer` và cần được cập nhật ở đó khi thay đổi `.env` hay Compose.
 
+### Bật nhận thông báo BIDV SmartBanking
+
+Trên VPS, đặt `BIDV_IMPORT_TOKEN` riêng cho bản thật trong `/etc/family-organizer/app.env` nếu dùng updater, hoặc `/home/family/Family-Organizer/.env` nếu dùng Compose thủ công. Khi bật lần đầu cho một hệ thống đã có updater, cập nhật Compose của updater từ checkout đã kiểm tra bằng `sudo bash deploy/install-oci-updater.sh`. Áp dụng cấu hình bằng quy trình cập nhật ứng dụng hoặc chạy lại Compose để tạo lại container.
+
+Chỉ đổi URL của Phím tắt sang `https://family.thanhtan.top/api/finance/imports/bidv` sau khi xác nhận bản thật đã lên phiên bản mới và endpoint trả `401` khi gửi POST thiếu token. Dùng token của bản thật trong Phím tắt.
+
 ### Vận hành thủ công
 
 Vào tài khoản quản lý bằng `sudo -iu family` để thao tác với repo và dữ liệu. Với bản cài chưa có dịch vụ cập nhật, dùng các lệnh dưới đây để cập nhật qua terminal từ tài khoản quản trị VPS.

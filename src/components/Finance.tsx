@@ -50,6 +50,8 @@ import { SavingsGoals } from "./SavingsGoals.js";
 import { DebtTracker } from "./DebtTracker.js";
 import { ShimmerLine, Reveal } from "./Lively.js";
 import { FancySelect } from "./FancySelect.js";
+import { INCOME_CATEGORIES, INCOME_CUSTOM, isPresetIncome } from "../utils/incomeCategories.js";
+import { BidvImportInbox } from "./BidvImportInbox.js";
 import { optimizeAndUpload } from "../utils/uploadImage.js";
 import { useModalA11y } from "../hooks/useModalA11y.js";
 import {
@@ -151,6 +153,11 @@ interface FinanceProps {
   debts: Debt[];
   assets: FamilyAsset[];
   widgets?: any;
+  authToken: string | null;
+  onRefreshTransactions: () => Promise<void>;
+  bidvRevision: number;
+  bidvReviewRequest: { id: string; seq: number } | null;
+  onBidvReviewOpened: (seq: number) => void;
   onSaveTransaction: (tx: Partial<FinancialTransaction>) => Promise<any>;
   onDeleteTransaction: (id: string) => Promise<any>;
   onSaveBudget: (budget: Partial<BudgetLimit>) => Promise<any>;
@@ -309,20 +316,6 @@ function MoneyInput({ value, onChange, placeholder, className, id, autoFocus, op
 
 // Hạng mục THU NHẬP gợi ý — giá trị lưu trực tiếp là nhãn tiếng Việt (income category là free-text).
 // Chọn "__custom__" để tự nhập nguồn thu khác.
-const INCOME_CATEGORIES = [
-  "Lương tháng",
-  "Tiền thưởng",
-  "Làm thêm / Freelance",
-  "Hoa hồng bán hàng",
-  "Cổ tức",
-  "Lợi nhuận cổ phần / Đầu tư",
-  "Cho thuê (nhà/xe...)",
-  "Tiền mượn / Vay",
-  "Được cho / Biếu tặng",
-] as const;
-const INCOME_CUSTOM = "__custom__";
-const isPresetIncome = (cat: string) => (INCOME_CATEGORIES as readonly string[]).includes(cat);
-
 function isAlreadyPaidThisPeriod(bill: RecurringBill): boolean {
   if (!bill.lastPaidDate) return false;
   const today = new Date();
@@ -358,6 +351,11 @@ export function Finance({
   debts,
   assets,
   widgets,
+  authToken,
+  onRefreshTransactions,
+  bidvRevision,
+  bidvReviewRequest,
+  onBidvReviewOpened,
   onSaveTransaction,
   onDeleteTransaction,
   onSaveBudget,
@@ -417,6 +415,9 @@ export function Finance({
   })), [i18nHook.language]);
 
   const [financeView, setFinanceView] = useState<"cashflow" | "assets">("cashflow");
+  useEffect(() => {
+    if (bidvReviewRequest) setFinanceView("cashflow");
+  }, [bidvReviewRequest]);
   // Kỳ xem (Tháng/Quý/Năm) + mốc ngày trong kỳ + bật bảng so sánh 2 cột
   const [periodMode, setPeriodMode] = useState<PeriodMode>("month");
   const [anchor, setAnchor] = useState<Date>(() => new Date());
@@ -1573,6 +1574,12 @@ export function Finance({
             );
           })()}
         </div>
+      )}
+
+      {currentUser.role === UserRole.ADMIN && authToken && (
+        <BidvImportInbox authToken={authToken} expenseCategories={expenseCategoryOptions}
+          onApproved={onRefreshTransactions} revision={bidvRevision}
+          reviewRequest={bidvReviewRequest} onReviewOpened={onBidvReviewOpened} />
       )}
 
       {/* Query Filters blocks and create triggers row */}

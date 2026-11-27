@@ -20,6 +20,8 @@ import { streamFullBackup, fullBackupFilename, importFullBackup } from "./server
 import { telegramBackupStatus, sendBackupToTelegram, runTelegramBackupTick } from "./server/telegramBackup.js";
 import { sendWeeklyDigest, runWeeklyDigestTick } from "./server/weeklyDigest.js";
 import { icsFeedToken, isValidIcsToken, buildIcsFeed } from "./server/icsFeed.js";
+import { createBidvImportRouter } from "./server/bidvImportRoute.js";
+import { parseBidvReview } from "./server/bidvImport.js";
 import { getVapidPublicKey, isPushConfigured, sendTestPush } from "./server/push.js";
 import { BUILD, checkReleases, getUpdateOverview, requestRestart, runUpdateTick, setAutoUpdate, startUpdate, updateAvailable, compareVersions, checkImmichRelease, getImmichOverview, startImmichUpdate } from "./server/updater.js";
 
@@ -131,6 +133,13 @@ async function geminiGenerate(ai: any, params: any, retries = 2): Promise<any> {
   throw lastErr;
 }
 
+let maintenanceMode = false;
+// Apply the smaller BIDV request limit before the shared receipt-image parser.
+app.use("/api/finance/imports/bidv", createBidvImportRouter(() => maintenanceMode, transactionId => {
+  if (transactionId) broadcastSyncEvent("FINANCE_UPDATE", { txId: transactionId });
+  else broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+}));
+
 // Body parser - supports rich receipt images in finances
 app.use(express.json({ limit: "15mb" }));
 
@@ -241,7 +250,6 @@ app.use(authMiddleware as any);
 // --- CỜ BẢO TRÌ (chặn ghi trong lúc import backup toàn phần) ---
 // Import có các bước await dài (giải nén media); ghi song song trong lúc đó sẽ
 // bị snapshot restore nuốt mất nên chặn hẳn với 503 cho tới khi import xong.
-let maintenanceMode = false;
 app.use("/api", (req: Request, res: Response, next: NextFunction) => {
   if (maintenanceMode && req.method !== "GET") {
     res.status(503).json({ error: "Server đang khôi phục dữ liệu từ backup — vui lòng thử lại sau ít giây." });
@@ -1206,6 +1214,74 @@ app.get("/api/search", requireAuth, (req: AuthRequest, res: Response) => {
 });
 
 // --- FINANCIAL API ENDPOINTS ---
+
+const requireFinanceAdmin = requireRole([UserRole.ADMIN]);
+
+app.get("/api/finance/imports/bidv/pending", requireAuth, requireFinanceAdmin, (_req, res) => {
+  // Vary: * also prevents old PWA service workers from saving this response in Cache Storage.
+  res.set({ "Cache-Control": "no-store", Vary: "*" }).json({
+    imports: FamilyDB.getPendingBidvImports(),
+    rules: FamilyDB.getBidvAutoApprovalRules(),
+    receivingEnabled: Boolean(process.env.BIDV_IMPORT_TOKEN?.trim()),
+  });
+});
+
+app.patch("/api/finance/imports/bidv/rules/:id", requireAuth, requireFinanceAdmin, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!/^[a-f0-9]{64}$/.test(req.params.id) || typeof req.body?.enabled !== "boolean") {
+    res.status(400).json({ error: "Quy tắc tự duyệt không hợp lệ." });
+    return;
+  }
+  if (!FamilyDB.setBidvAutoApprovalRuleEnabled(req.params.id, req.body.enabled)) {
+    res.status(404).json({ error: "Không tìm thấy quy tắc tự duyệt BIDV." });
+    return;
+  }
+  broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+  res.json({ enabled: req.body.enabled });
+});
+
+app.post("/api/finance/imports/bidv/:id/review", requireAuth, requireFinanceAdmin, (req: AuthRequest, res: Response) => {
+  res.set("Cache-Control", "no-store");
+  const review = parseBidvReview(req.body);
+  if (!review) {
+    res.status(400).json({ error: "Thông tin duyệt giao dịch không hợp lệ." });
+    return;
+  }
+
+  const { userId, username } = req.userSession!;
+  try {
+    const result = FamilyDB.reviewBidvImport(req.params.id, review, userId, username);
+    switch (result.status) {
+      case "approved":
+        if (result.changed) {
+          broadcastSyncEvent("FINANCE_UPDATE", { txId: result.transactionId });
+          broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+        }
+        res.json({ status: result.status, transactionId: result.transactionId });
+        return;
+      case "dismissed":
+      case "internal-transfer":
+        broadcastSyncEvent("BIDV_IMPORTS_UPDATE");
+        res.json({ status: result.status });
+        return;
+      case "not-found":
+        res.status(404).json({ error: "Không tìm thấy thông báo BIDV." });
+        return;
+      case "conflict":
+        res.status(409).json({ error: "Thông báo BIDV này đã được xử lý." });
+        return;
+      case "invalid-auto-rule":
+        res.status(400).json({ error: "Chưa xác định được tài khoản, ngân hàng và chiều giao dịch để bật tự duyệt." });
+        return;
+      case "invalid-category":
+        res.status(400).json({ error: "Hạng mục chi tiêu không hợp lệ." });
+        return;
+    }
+  } catch {
+    console.error("Không lưu được kết quả duyệt giao dịch BIDV vào SQLite.");
+    res.status(500).json({ error: "Chưa lưu được kết quả duyệt. Hãy thử lại." });
+  }
+});
 
 app.get("/api/finance", requireAuth, requireRole([UserRole.ADMIN, UserRole.MEMBER]), (req: AuthRequest, res: Response) => {
   const transactions = FamilyDB.getTransactions();
@@ -2362,9 +2438,11 @@ app.post("/api/users/:id/reset-password", requireAuth, requireRole([UserRole.ADM
 // --- NOTIFICATIONS ENDPOINTS ---
 
 app.get("/api/notifications", requireAuth, (req: AuthRequest, res: Response) => {
-  const userId = req.userSession!.userId;
-  const list = FamilyDB.getNotifications().filter(n => n.userId === "all" || n.userId === userId);
-  res.json({ notifications: list });
+  const { userId, role } = req.userSession!;
+  const list = FamilyDB.getNotifications().filter(n =>
+    (n.userId === "all" || n.userId === userId) && (!n.bidvImportId || role === UserRole.ADMIN)
+  );
+  res.set({ "Cache-Control": "no-store", Vary: "*" }).json({ notifications: list });
 });
 
 app.post("/api/notifications/:id/read", requireAuth, (req: AuthRequest, res: Response) => {
