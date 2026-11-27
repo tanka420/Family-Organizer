@@ -3,6 +3,13 @@
 Ghi theo phiên bản, mới nhất ở trên. Nội dung mục của từng phiên bản được dùng làm ghi chú
 hiển thị trong **Thiết lập → Hệ thống & Sao lưu → Phiên bản & Cập nhật**.
 
+## [1.2.0] - 2026-11-27
+
+- **BIDV SmartBanking:** Nhận thông báo từ Phím tắt trên iPhone và đưa khoản thu, chi vào hàng chờ trong mục Chi tiêu. Bấm thông báo trong Family để mở giao dịch cần duyệt.
+- Tự điền số tiền, ngày và ghi chép ngắn. Bạn có thể xem nội dung gốc, sửa hạng mục hoặc đánh dấu chuyển nội bộ.
+- Có thể bật hoặc tắt tự duyệt từng quy tắc theo ngân hàng, tài khoản đối tác và chiều giao dịch.
+- Quản trị viên có thể bật nhận thông báo trên Oracle VPS bằng token riêng cho bản thật.
+
 ## [1.1.2] - 2026-11-26
 
 - Đặt quyền đọc tệp của bản build để app khởi động được bằng tài khoản `family`. Dịch vụ cập nhật ghi log của container nếu health check thất bại.
