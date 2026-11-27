@@ -3,21 +3,32 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Inbox, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Inbox, RefreshCw, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { BANK_IMPORT_LABELS, bankImportSource, TransactionType, type BankImportSource, type PendingBidvImport, type BidvImportReview, type BidvAutoApprovalRule } from "../types.js";
 import { INCOME_CATEGORIES, INCOME_CUSTOM, isPresetIncome } from "../utils/incomeCategories.js";
+import { useModalA11y } from "../hooks/useModalA11y.js";
+import { DateInputDMY, dateVNToIso } from "./DateTimePicker24.js";
+import { MoneyInput } from "./MoneyInput.js";
 import { useConfirm } from "./ConfirmDialog.js";
 import { FancySelect, type SelectOption } from "./FancySelect.js";
 
 const INPUT_CLASS = "w-full min-w-0 bg-slate-950 neu-pressed-sm rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500";
+const RECEIVED_TIME = new Intl.DateTimeFormat("vi-VN", {
+  timeZone: "Asia/Ho_Chi_Minh",
+  day: "2-digit", month: "2-digit", year: "numeric",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+const IMPORT_AMOUNT = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" });
 const BUTTON_CLASS = "min-h-10 rounded-xl px-3 py-2 font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60";
 
 interface ReviewDraft {
   id: string;
   type: TransactionType | "";
-  amount: string;
+  amount: number;
   date: string;
   category: string;
   description: string;
@@ -39,7 +50,7 @@ interface InboxProps {
 }
 
 export function BankImportInbox({ source, authToken, expenseCategories, onApproved, revision, reviewRequest, onReviewOpened }: InboxProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const api = `/api/finance/imports/${source}`;
   const bank = BANK_IMPORT_LABELS[source];
   const label = source === "bidv" ? t("finance.bidvInbox.title") : bank;
@@ -56,6 +67,15 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
   const [notice, setNotice] = useState("");
   const handledReview = useRef(0);
   const savingRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
+  const activeItem = draft ? items.find(item => item.id === draft.id) : undefined;
+  const closeReview = useCallback(() => {
+    if (savingRef.current) return;
+    setDraft(null);
+    setError("");
+  }, []);
+  useModalA11y(Boolean(draft && activeItem), closeReview, dialogRef);
   const { confirm, ConfirmDialog } = useConfirm();
 
   useEffect(() => {
@@ -111,7 +131,7 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
     const category = type !== TransactionType.EXPENSE || expenseCategories.some(option => option.value === suggested)
       ? suggested : "";
     setDraft({
-      id: item.id, type, amount: amount === null ? "" : String(amount), date, category,
+      id: item.id, type, amount: amount ?? 0, date, category,
       description: description || fallbackDescription(type),
       customIncome: type === TransactionType.INCOME && Boolean(category) && !isPresetIncome(category),
       detectedType: type, canAutoApprove: Boolean(item.counterparty), autoApprove: false, internalTransfer: false,
@@ -167,15 +187,16 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
   function approve(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
-    const amount = Number(draft.amount);
-    if (!draft.type || !/^\d+$/.test(draft.amount) || !Number.isSafeInteger(amount) || amount <= 0 ||
-        !draft.date || !draft.description.trim() ||
+    const { amount } = draft;
+    const date = dateVNToIso(String(new FormData(event.currentTarget).get("date") ?? ""));
+    if (!draft.type || !Number.isSafeInteger(amount) || amount <= 0 ||
+        !date || date < "1900-01-01" || !draft.description.trim() ||
         (!draft.internalTransfer && (!draft.category.trim() ||
           (draft.type === TransactionType.EXPENSE && !expenseCategories.some(option => option.value === draft.category))))) {
       setError("invalidReview");
       return;
     }
-    const { type, date, category, description, autoApprove, internalTransfer } = draft;
+    const { type, category, description, autoApprove, internalTransfer } = draft;
     const fields = { type, amount, date, description };
     const review: BidvImportReview = internalTransfer
       ? { action: "transfer", ...fields }
@@ -218,11 +239,8 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
     setTab("pending");
     const item = items.find(item => item.id === reviewRequest.id);
     if (item) openReview(item);
+    else requestAnimationFrame(() => document.getElementById(source + "-inbox")?.scrollIntoView({ block: "start" }));
     onReviewOpened(reviewRequest.seq);
-    requestAnimationFrame(() => {
-      const target = document.getElementById(source + "-item-" + reviewRequest.id) ?? document.getElementById(source + "-inbox");
-      target?.scrollIntoView({ block: "start" });
-    });
   }, [reviewRequest, loading, items, onReviewOpened, source]);
 
   if (!receivingEnabled && items.length === 0 && rules.length === 0 && !error && !notice) return null;
@@ -291,128 +309,146 @@ export function BankImportInbox({ source, authToken, expenseCategories, onApprov
               <div key={item.id} id={source + "-item-" + item.id} className="bg-slate-950/40 neu-pressed-sm rounded-xl p-3 space-y-3">
                 <div className="space-y-1">
                   <time dateTime={item.receivedAt} className="block text-xs text-slate-450 font-mono">
-                    {new Date(item.receivedAt).toLocaleString(i18n.language, {
-                      timeZone: "Asia/Ho_Chi_Minh", dateStyle: "short", timeStyle: "short",
-                    })}
+                    {RECEIVED_TIME.format(new Date(item.receivedAt))}
                   </time>
                   <p className="font-semibold text-sm text-slate-200 break-words line-clamp-2">
                     {item.suggestion.description || fallbackDescription(item.suggestion.type)}
                   </p>
-                  {draft?.id === item.id && (item.title || item.body) && (
-                    <details className="text-xs text-slate-400">
-                      <summary className="py-2 cursor-pointer">{t("finance.bidvInbox.originalNotification")}</summary>
-                      {item.title && <p className="font-semibold break-words">{item.title}</p>}
-                      {item.body && <p className="whitespace-pre-wrap break-words">{item.body}</p>}
-                    </details>
+                  {item.suggestion.amount !== null && (
+                    <p className="text-xs font-mono text-slate-300">
+                      {IMPORT_AMOUNT.format(item.suggestion.amount * (item.suggestion.type === TransactionType.EXPENSE ? -1 : 1))}
+                    </p>
                   )}
                 </div>
 
-                {draft?.id === item.id ? (
-                  <form onSubmit={approve} className="space-y-3 text-xs" aria-label={t("finance.bidvInbox.review")}>
-                    {error && <p role="alert" className="text-xs text-rose-400">{inboxText(error)}</p>}
-                    <fieldset disabled={saving || loading} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="min-w-0 space-y-1">
-                        <label htmlFor={source + "-review-type"} className="block text-slate-400 font-semibold">{t("finance.bidvInbox.direction")}</label>
-                        <FancySelect id={source + "-review-type"} value={draft.type} ariaLabel={t("finance.bidvInbox.direction")}
-                          options={[
-                            { value: TransactionType.INCOME, label: t("finance.formIncomeBtn") },
-                            { value: TransactionType.EXPENSE, label: t("finance.formExpenseBtn") },
-                          ]}
-                          onChange={type => changeDirection(type as TransactionType)} />
-                      </div>
-                      <label className="min-w-0 space-y-1 text-slate-400 font-semibold">
-                        <span className="block">{t("finance.formAmountLabel")}</span>
-                        <input required inputMode="numeric" maxLength={16} value={draft.amount}
-                          onChange={event => setDraft({ ...draft, amount: event.target.value })} className={INPUT_CLASS + " font-mono"} />
-                      </label>
-                      <label className="min-w-0 space-y-1 text-slate-400 font-semibold">
-                        <span className="block">{t("finance.formDateLabel")}</span>
-                        <input type="date" required min="1900-01-01" max="9999-12-31" value={draft.date}
-                          onChange={event => setDraft({ ...draft, date: event.target.value })}
-                          className={INPUT_CLASS + " box-border appearance-none font-mono"} />
-                      </label>
-                      {!draft.internalTransfer && draft.type === TransactionType.EXPENSE && (
-                        <div className="min-w-0 space-y-1">
-                          <label htmlFor={source + "-review-category"} className="block text-slate-400 font-semibold">{t("finance.formCatExpenseLabel")}</label>
-                          <FancySelect id={source + "-review-category"} value={draft.category} options={expenseCategories}
-                            placeholder={t("finance.bidvInbox.chooseCategory")}
-                            ariaLabel={t("finance.formCatExpenseLabel")} onChange={category => setDraft({ ...draft, category })} />
-                        </div>
-                      )}
-                      {!draft.internalTransfer && draft.type === TransactionType.INCOME && (
-                        <div className="min-w-0 space-y-1">
-                          <label htmlFor={source + "-review-income"} className="block text-slate-400 font-semibold">{t("finance.formCatIncomeLabel")}</label>
-                          <FancySelect id={source + "-review-income"}
-                            value={draft.customIncome ? INCOME_CUSTOM : draft.category}
-                            options={incomeOptions}
-                            placeholder={t("finance.bidvInbox.chooseCategory")}
-                            ariaLabel={t("finance.formCatIncomeLabel")}
-                            onChange={category => setDraft({ ...draft, customIncome: category === INCOME_CUSTOM,
-                              category: category === INCOME_CUSTOM ? "" : category })} />
-                          {draft.customIncome && (
-                            <input maxLength={100} aria-label={t("finance.formCatOtherPlaceholder")}
-                              placeholder={t("finance.formCatOtherPlaceholder")}
-                              value={draft.category}
-                              onChange={event => setDraft({ ...draft, category: event.target.value })} className={INPUT_CLASS} />
-                          )}
-                        </div>
-                      )}
-                      <div className="min-w-0 space-y-1">
-                        <span className="block text-slate-400 font-semibold">{t("finance.formAccountLabel")}</span>
-                        <p className={INPUT_CLASS}>{t("finance.formAccountBank")}</p>
-                      </div>
-                      <label className="min-w-0 space-y-1 text-slate-400 font-semibold sm:col-span-2">
-                        <span className="block">{t("finance.formDescLabel")}</span>
-                        <input required maxLength={250} value={draft.description}
-                          onChange={event => setDraft({ ...draft, description: event.target.value })} className={INPUT_CLASS} />
-                      </label>
-                      <label className="flex items-center gap-2 min-h-10 text-slate-300 sm:col-span-2">
-                        <input type="checkbox" className="size-4 accent-sky-500" checked={draft.internalTransfer}
-                          onChange={event => setDraft({ ...draft, internalTransfer: event.target.checked, autoApprove: false })} />
-                        {t("finance.bidvInbox.internalTransfer")}
-                      </label>
-                      {draft.internalTransfer && (
-                        <p className="text-slate-400 sm:col-span-2">{inboxText("transferHelp")}</p>
-                      )}
-                      {source === "bidv" && !draft.internalTransfer && (
-                        <div className="sm:col-span-2">
-                          <label className="flex items-center gap-2 min-h-10 text-slate-300">
-                            <input type="checkbox" className="size-4 accent-sky-500" checked={draft.autoApprove}
-                              disabled={!draft.canAutoApprove || draft.type !== draft.detectedType}
-                              aria-describedby={source + "-rule-help"}
-                              onChange={event => setDraft({ ...draft, autoApprove: event.target.checked })} />
-                            {t("finance.bidvInbox.allowAutoApproval")}
-                          </label>
-                          <p id={source + "-rule-help"} className="text-slate-400">
-                            {item.counterparty && draft.type === draft.detectedType
-                              ? t("finance.bidvInbox.ruleHelp", { bank: item.counterparty.bank, ending: item.counterparty.accountEnding })
-                              : t("finance.bidvInbox.ruleUnavailable")}
-                          </p>
-                        </div>
-                      )}
-                    </fieldset>
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      <button type="button" disabled={saving} onClick={() => { setDraft(null); setError(""); }}
-                        className={BUTTON_CLASS + " bg-slate-800 text-slate-300 hover:bg-slate-700"}>{t("finance.formClose")}</button>
-                      <button type="submit" disabled={loading || saving}
-                        className={BUTTON_CLASS + " bg-indigo-500 text-white hover:bg-indigo-400"}>
-                        {t(draft.internalTransfer ? "finance.bidvInbox.markTransfer" : "finance.bidvInbox.record")}
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="flex flex-wrap gap-2 justify-end text-xs">
-                    <button type="button" disabled={loading || saving} onClick={() => void dismiss(item.id)}
-                      className={BUTTON_CLASS + " bg-slate-800 text-slate-300 hover:bg-slate-700"}>{t("finance.bidvInbox.dismiss")}</button>
-                    <button type="button" disabled={loading || saving} onClick={() => openReview(item)}
-                      className={BUTTON_CLASS + " bg-sky-500/15 text-sky-400 hover:bg-sky-500/25"}>{t("finance.bidvInbox.review")}</button>
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2 justify-end text-xs">
+                  <button type="button" disabled={loading || saving} onClick={() => void dismiss(item.id)}
+                    className={BUTTON_CLASS + " bg-slate-800 text-slate-300 hover:bg-slate-700"}>{t("finance.bidvInbox.dismiss")}</button>
+                  <button type="button" disabled={loading || saving} onClick={() => openReview(item)}
+                    className={BUTTON_CLASS + " bg-sky-500/15 text-sky-400 hover:bg-sky-500/25"}>{t("finance.bidvInbox.review")}</button>
+                </div>
               </div>
             ))}
           </>
         )}
       </div>
+      {draft && activeItem && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs"
+          onClick={event => { if (event.target === event.currentTarget) closeReview(); }}>
+          <motion.div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={source + "-review-title"}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.95 }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[90dvh] flex flex-col overflow-hidden shadow-2xl outline-none">
+            <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-slate-800 shrink-0">
+              <h3 id={source + "-review-title"} className="font-bold text-slate-100">{t("finance.bidvInbox.review")} · {label}</h3>
+              <button type="button" onClick={closeReview} disabled={saving} aria-label={t("finance.formClose")}
+                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 disabled:opacity-60">
+                <X aria-hidden="true" className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={approve} className="space-y-3 text-xs overflow-y-auto overscroll-contain min-h-0 px-5 py-4">
+              {(activeItem.title || activeItem.body) && (
+                <details className="text-xs text-slate-400">
+                  <summary className="py-2 cursor-pointer">{t("finance.bidvInbox.originalNotification")}</summary>
+                  {activeItem.title && <p className="font-semibold break-words">{activeItem.title}</p>}
+                  {activeItem.body && <p className="whitespace-pre-wrap break-words">{activeItem.body}</p>}
+                </details>
+              )}
+              {error && <p role="alert" className="text-xs text-rose-400">{inboxText(error)}</p>}
+              <fieldset disabled={saving || loading} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0 space-y-1">
+                  <label htmlFor={source + "-review-type"} className="block text-slate-400 font-semibold">{t("finance.bidvInbox.direction")}</label>
+                  <FancySelect id={source + "-review-type"} value={draft.type} ariaLabel={t("finance.bidvInbox.direction")}
+                    options={[
+                      { value: TransactionType.INCOME, label: t("finance.formIncomeBtn") },
+                      { value: TransactionType.EXPENSE, label: t("finance.formExpenseBtn") },
+                    ]}
+                    onChange={type => changeDirection(type as TransactionType)} />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <label htmlFor={source + "-review-amount"} className="block text-slate-400 font-semibold">{t("finance.formAmountLabel")}</label>
+                  <MoneyInput id={source + "-review-amount"} value={draft.amount}
+                    onChange={amount => setDraft({ ...draft, amount })} operators={draft.type === TransactionType.EXPENSE}
+                    className={INPUT_CLASS + " font-mono"} />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <span className="block text-slate-400 font-semibold">{t("finance.formDateLabel")}</span>
+                  <DateInputDMY name="date" required min="1900-01-01" max="9999-12-31"
+                    ariaLabel={t("finance.formDateLabel")} value={draft.date}
+                    onChange={date => setDraft({ ...draft, date })} className={INPUT_CLASS + " font-mono"} />
+                </div>
+                {!draft.internalTransfer && draft.type === TransactionType.EXPENSE && (
+                  <div className="min-w-0 space-y-1">
+                    <label htmlFor={source + "-review-category"} className="block text-slate-400 font-semibold">{t("finance.formCatExpenseLabel")}</label>
+                    <FancySelect id={source + "-review-category"} value={draft.category} options={expenseCategories}
+                      placeholder={t("finance.bidvInbox.chooseCategory")}
+                      ariaLabel={t("finance.formCatExpenseLabel")} onChange={category => setDraft({ ...draft, category })} />
+                  </div>
+                )}
+                {!draft.internalTransfer && draft.type === TransactionType.INCOME && (
+                  <div className="min-w-0 space-y-1">
+                    <label htmlFor={source + "-review-income"} className="block text-slate-400 font-semibold">{t("finance.formCatIncomeLabel")}</label>
+                    <FancySelect id={source + "-review-income"}
+                      value={draft.customIncome ? INCOME_CUSTOM : draft.category}
+                      options={incomeOptions}
+                      placeholder={t("finance.bidvInbox.chooseCategory")}
+                      ariaLabel={t("finance.formCatIncomeLabel")}
+                      onChange={category => setDraft({ ...draft, customIncome: category === INCOME_CUSTOM,
+                        category: category === INCOME_CUSTOM ? "" : category })} />
+                    {draft.customIncome && (
+                      <input maxLength={100} aria-label={t("finance.formCatOtherPlaceholder")}
+                        placeholder={t("finance.formCatOtherPlaceholder")}
+                        value={draft.category}
+                        onChange={event => setDraft({ ...draft, category: event.target.value })} className={INPUT_CLASS} />
+                    )}
+                  </div>
+                )}
+                <div className="min-w-0 space-y-1">
+                  <span className="block text-slate-400 font-semibold">{t("finance.formAccountLabel")}</span>
+                  <p className={INPUT_CLASS}>{t("finance.formAccountBank")}</p>
+                </div>
+                <label className="min-w-0 space-y-1 text-slate-400 font-semibold sm:col-span-2">
+                  <span className="block">{t("finance.formDescLabel")}</span>
+                  <input required maxLength={250} value={draft.description}
+                    onChange={event => setDraft({ ...draft, description: event.target.value })} className={INPUT_CLASS} />
+                </label>
+                <label className="flex items-center gap-2 min-h-10 text-slate-300 sm:col-span-2">
+                  <input type="checkbox" className="size-4 accent-sky-500" checked={draft.internalTransfer}
+                    onChange={event => setDraft({ ...draft, internalTransfer: event.target.checked, autoApprove: false })} />
+                  {t("finance.bidvInbox.internalTransfer")}
+                </label>
+                {draft.internalTransfer && (
+                  <p className="text-slate-400 sm:col-span-2">{inboxText("transferHelp")}</p>
+                )}
+                {source === "bidv" && !draft.internalTransfer && (
+                  <div className="sm:col-span-2">
+                    <label className="flex items-center gap-2 min-h-10 text-slate-300">
+                      <input type="checkbox" className="size-4 accent-sky-500" checked={draft.autoApprove}
+                        disabled={!draft.canAutoApprove || draft.type !== draft.detectedType}
+                        aria-describedby={source + "-rule-help"}
+                        onChange={event => setDraft({ ...draft, autoApprove: event.target.checked })} />
+                      {t("finance.bidvInbox.allowAutoApproval")}
+                    </label>
+                    <p id={source + "-rule-help"} className="text-slate-400">
+                      {activeItem.counterparty && draft.type === draft.detectedType
+                        ? t("finance.bidvInbox.ruleHelp", { bank: activeItem.counterparty.bank, ending: activeItem.counterparty.accountEnding })
+                        : t("finance.bidvInbox.ruleUnavailable")}
+                    </p>
+                  </div>
+                )}
+              </fieldset>
+              <div className="flex flex-wrap gap-2 justify-end">
+                <button type="button" disabled={saving} onClick={closeReview}
+                  className={BUTTON_CLASS + " bg-slate-800 text-slate-300 hover:bg-slate-700"}>{t("finance.formClose")}</button>
+                <button type="submit" disabled={loading || saving}
+                  className={BUTTON_CLASS + " bg-indigo-500 text-white hover:bg-indigo-400"}>
+                  {t(draft.internalTransfer ? "finance.bidvInbox.markTransfer" : "finance.bidvInbox.record")}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>, document.body
+      )}
       {ConfirmDialog}
     </section>
   );

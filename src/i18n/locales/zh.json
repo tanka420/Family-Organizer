@@ -137,7 +137,7 @@
       "ruleOn": "已启用",
       "ruleOff": "已关闭",
       "allowAutoApproval": "下次自动审核",
-      "ruleHelp": "当交易方向相同且匹配 {{bank}} 尾号 {{ending}} 的账户时，Family 将按所选分类入账。",
+      "ruleHelp": "当交易方向相同且匹配 {{bank}} 尾号 {{ending}} 的账户时，Family 将按所选分类入账。 每笔交易的备注取自该笔交易的通知。",
       "ruleUnavailable": "自动审核需要识别银行、对方账户及交易方向。",
       "refresh": "刷新 {{bank}} 待审核列表",
       "loading": "正在加载 {{bank}} 通知…",
