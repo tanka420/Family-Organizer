@@ -3,6 +3,12 @@
 Ghi theo phiên bản, mới nhất ở trên. Nội dung mục của từng phiên bản được dùng làm ghi chú
 hiển thị trong **Thiết lập → Hệ thống & Sao lưu → Phiên bản & Cập nhật**.
 
+## [1.3.1] - 2026-11-28
+
+- **BIDV và MyVIB:** Lọc thông báo khuyến mãi, bảo trì, mã xác thực và các thông báo không có dấu hiệu giao dịch trước khi đưa vào hàng chờ duyệt.
+- Khi khởi động bản mới, tự chuyển các thông báo không phải giao dịch đang chờ sang **Bỏ qua** và gỡ nhắc duyệt tương ứng. Thông báo gốc vẫn được giữ trong cơ sở dữ liệu.
+- Các mẫu giao dịch có dấu hiệu nhận diện nhưng số tiền chưa đọc được vẫn được giữ để duyệt tay. Giao dịch đã ghi sổ và lịch sử đã xử lý được giữ nguyên.
+
 ## [1.3.0] - 2026-11-27
 
 - **MyVIB:** Nhận thông báo giao dịch tài khoản từ Phím tắt trên iPhone, điền sẵn chiều thu hoặc chi, số tiền và ngày. Quản trị viên duyệt trong **Chi tiêu → MyVIB**. Thông báo có nhãn thẻ tín dụng được bỏ qua.
