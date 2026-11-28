@@ -134,6 +134,7 @@ async function geminiGenerate(ai: any, params: any, retries = 2): Promise<any> {
 }
 
 let maintenanceMode = false;
+FamilyDB.dismissNonTransactionBankImports();
 // Apply the smaller bank import request limit before the shared receipt-image parser.
 const bankImportSources = Object.keys(BANK_IMPORT_LABELS) as BankImportSource[];
 for (const source of bankImportSources) {

@@ -55,6 +55,7 @@ import { deleteMediaByUrl } from "./media.js";
 import { dispatchPush } from "./push.js";
 import { bidvCategoryRuleId, identifyBidvCounterparty, readBidvNotification, suggestBidvCategory, type BidvEventInput } from "./bidvImport.js";
 import { readMyVibNotification } from "./myvibImport.js";
+import { isBankTransactionNotice } from "./bankImportFilter.js";
 
 // Whitelist of valid asset types (mirrors AssetType in src/types.ts).
 const VALID_ASSET_TYPES = new Set<string>([
@@ -1293,7 +1294,7 @@ export class FamilyDB {
       (Object.hasOwn(this.TX_CATEGORY_LABELS, category) || db.customCategories.some(item => item.id === category));
   }
 
-  public static receiveBankImport(source: BankImportSource, input: BidvEventInput): { status: "accepted" | "duplicate" | "conflict"; transactionId?: string } {
+  public static receiveBankImport(source: BankImportSource, input: BidvEventInput): { status: "accepted" | "ignored" | "duplicate" | "conflict"; transactionId?: string } {
     return sqliteWriteTransaction(() => {
       const db = this.readRaw();
       const { receivedAt, title, body } = input;
@@ -1307,6 +1308,11 @@ export class FamilyDB {
 
       const createdAt = new Date().toISOString();
       const event = { id: eventId, receivedAt, title, body, createdAt };
+      if (!isBankTransactionNotice(source, input)) {
+        imports.push({ ...event, status: "dismissed", reviewedAt: createdAt, reviewedBy: "system:bank-import-filter" });
+        sqliteSave(db);
+        return { status: "ignored" };
+      }
       if (source === "bidv") {
         const { type, amount, date, description, memo } = readBidvNotification(body, receivedAt);
         const counterparty = identifyBidvCounterparty(type, memo);
@@ -1350,6 +1356,28 @@ export class FamilyDB {
     const id = "tx_" + crypto.randomUUID();
     db.transactions.push({ ...fields, id, account: AccountType.BANK, creatorId, createdAt });
     return id;
+  }
+
+  // Upgrade old queues without deleting their original notices or touching reviewed entries.
+  public static dismissNonTransactionBankImports(): void {
+    sqliteWriteTransaction(() => {
+      const db = this.readRaw();
+      const dismissed = new Set<string>();
+      const reviewedAt = new Date().toISOString();
+      for (const source of ["bidv", "myvib"] as const) {
+        const imports = source === "bidv" ? db.bidvImports : db.myvibImports;
+        imports.forEach((event, index) => {
+          if (event.status === "pending" && !isBankTransactionNotice(source, event)) {
+            imports[index] = { ...event, status: "dismissed", reviewedAt, reviewedBy: "system:bank-import-filter" };
+            dismissed.add(event.id);
+          }
+        });
+      }
+      if (dismissed.size) {
+        db.notifications = db.notifications.filter(item => !item.bidvImportId || !dismissed.has(item.bidvImportId));
+        sqliteSave(db);
+      }
+    });
   }
 
   public static getBidvAutoApprovalRules(): BidvAutoApprovalRule[] {
