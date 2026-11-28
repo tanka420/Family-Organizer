@@ -7,7 +7,6 @@ import express, { type ErrorRequestHandler } from "express";
 import { isBidvImportToken, parseBidvEvent } from "./bidvImport.js";
 import { FamilyDB } from "./db.js";
 import { BANK_IMPORT_LABELS, type BankImportSource } from "../src/types.js";
-import { isMyVibCreditCardNotice } from "./myvibImport.js";
 
 export function bankImportToken(source: BankImportSource) {
   return (source === "myvib" ? process.env.MYVIB_IMPORT_TOKEN : process.env.BIDV_IMPORT_TOKEN)?.trim();
@@ -55,11 +54,6 @@ export function createBankImportRouter(source: BankImportSource, isMaintenance: 
       const parsed = parseBidvEvent(req.body, source === "myvib" ? label : "SmartBanking");
       if ("error" in parsed) {
         res.status(400).json(parsed);
-        return;
-      }
-
-      if (source === "myvib" && isMyVibCreditCardNotice(parsed.event.title, parsed.event.body)) {
-        res.json({ status: "ignored" });
         return;
       }
 
